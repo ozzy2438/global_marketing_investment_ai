@@ -1,0 +1,62 @@
+# ==============================
+# JARVIS AI Agency OS — .gitignore
+# ==============================
+
+# --- Secrets & Environment ---
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# --- Database (local) ---
+jarvis.db
+jarvis.db-shm
+jarvis.db-wal
+*.sqlite
+*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# --- Virtual Environments ---
+venv/
+env/
+.venv/
+ENV/
+
+# --- Build / Distribution ---
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Testing ---
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+
+# --- Docker ---
+*.log
+
+# --- Temp / Scratch ---
+tmp/
+scratch/
+*.tmp

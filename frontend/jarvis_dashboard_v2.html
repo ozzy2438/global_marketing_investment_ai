@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS AI Agency OS — Dashboard</title>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: #1a2332;
+            --bg-hover: #243044;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59,130,246,0.3);
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #1e293b;
+            --sidebar-width: 260px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Inter',-apple-system,sans-serif; background:var(--bg-primary); color:var(--text-primary); display:flex; min-height:100vh; }
+
+        /* Sidebar */
+        .sidebar { width:var(--sidebar-width); background:var(--bg-secondary); border-right:1px solid var(--border); padding:20px 0; position:fixed; height:100vh; overflow-y:auto; z-index:100; }
+        .sidebar-logo { padding:0 20px 24px; border-bottom:1px solid var(--border); margin-bottom:16px; }
+        .sidebar-logo h1 { font-size:22px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+        .sidebar-logo span { font-size:11px; color:var(--text-muted); }
+        .nav-section { padding:8px 12px; font-size:10px; text-transform:uppercase; color:var(--text-muted); letter-spacing:1.5px; margin-top:12px; }
+        .nav-item { display:flex; align-items:center; gap:10px; padding:10px 20px; color:var(--text-secondary); cursor:pointer; transition:all .2s; font-size:13px; border-left:3px solid transparent; }
+        .nav-item:hover { background:var(--bg-hover); color:var(--text-primary); }
+        .nav-item.active { background:rgba(59,130,246,0.1); color:var(--accent); border-left-color:var(--accent); }
+        .nav-item .icon { width:18px; text-align:center; }
+        .nav-badge { margin-left:auto; background:var(--danger); color:white; font-size:10px; padding:2px 6px; border-radius:10px; }
+
+        /* Main */
+        .main { margin-left:var(--sidebar-width); flex:1; padding:24px; }
+        .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+        .header h2 { font-size:20px; font-weight:600; }
+        .header-actions { display:flex; gap:10px; }
+        .btn { padding:8px 16px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:500; transition:all .2s; }
+        .btn-primary { background:var(--accent); color:white; }
+        .btn-primary:hover { background:#2563eb; box-shadow:0 0 20px var(--accent-glow); }
+        .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text-secondary); }
+        .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+
+        /* Stats Grid */
+        .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+        .stat-card { background:var(--bg-card); border-radius:12px; padding:20px; border:1px solid var(--border); transition:all .3s; }
+        .stat-card:hover { border-color:var(--accent); transform:translateY(-2px); box-shadow:0 8px 25px rgba(0,0,0,0.3); }
+        .stat-label { font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
+        .stat-value { font-size:28px; font-weight:700; }
+        .stat-value.blue { color:var(--accent); }
+        .stat-value.green { color:var(--success); }
+        .stat-value.yellow { color:var(--warning); }
+        .stat-value.red { color:var(--danger); }
+        .stat-change { font-size:11px; margin-top:6px; }
+        .stat-change.up { color:var(--success); }
+        .stat-change.down { color:var(--danger); }
+
+        /* Grid Layout */
+        .grid-2 { display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:24px; }
+        .grid-equal { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+
+        /* Cards */
+        .card { background:var(--bg-card); border-radius:12px; padding:20px; border:1px solid var(--border); }
+        .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+        .card-title { font-size:15px; font-weight:600; }
+        .card-action { font-size:12px; color:var(--accent); cursor:pointer; }
+
+        /* Table */
+        .table { width:100%; border-collapse:collapse; }
+        .table th { text-align:left; padding:10px 12px; font-size:11px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); letter-spacing:1px; }
+        .table td { padding:12px; font-size:13px; border-bottom:1px solid var(--border); }
+        .table tr:hover { background:var(--bg-hover); }
+
+        /* Badges */
+        .badge { padding:3px 8px; border-radius:6px; font-size:11px; font-weight:500; }
+        .badge-hot { background:rgba(239,68,68,0.15); color:#ef4444; }
+        .badge-warm { background:rgba(245,158,11,0.15); color:#f59e0b; }
+        .badge-cold { background:rgba(59,130,246,0.15); color:#3b82f6; }
+        .badge-won { background:rgba(16,185,129,0.15); color:#10b981; }
+        .badge-premium { background:rgba(139,92,246,0.15); color:#8b5cf6; }
+        .badge-professional { background:rgba(59,130,246,0.15); color:#3b82f6; }
+        .badge-starter { background:rgba(16,185,129,0.15); color:#10b981; }
+
+        /* Score Ring */
+        .score-ring { width:120px; height:120px; position:relative; margin:0 auto 16px; }
+        .score-ring svg { transform:rotate(-90deg); }
+        .score-ring .value { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:28px; font-weight:700; }
+
+        /* Pipeline */
+        .pipeline { display:flex; gap:8px; margin-top:12px; }
+        .pipeline-stage { flex:1; text-align:center; padding:12px 8px; background:var(--bg-primary); border-radius:8px; }
+        .pipeline-stage .count { font-size:22px; font-weight:700; color:var(--accent); }
+        .pipeline-stage .label { font-size:10px; color:var(--text-muted); margin-top:4px; text-transform:uppercase; }
+
+        /* Activity */
+        .activity-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+        .activity-item:last-child { border:none; }
+        .activity-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+        .activity-icon.scan { background:rgba(59,130,246,0.15); }
+        .activity-icon.deal { background:rgba(16,185,129,0.15); }
+        .activity-icon.call { background:rgba(245,158,11,0.15); }
+        .activity-icon.alert { background:rgba(239,68,68,0.15); }
+        .activity-text { font-size:13px; }
+        .activity-time { font-size:11px; color:var(--text-muted); }
+
+        /* JARVIS Chat */
+        .jarvis-fab { position:fixed; bottom:24px; right:24px; width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg,#3b82f6,#8b5cf6); border:none; color:white; font-size:24px; cursor:pointer; box-shadow:0 4px 20px var(--accent-glow); z-index:1000; transition:all .3s; }
+        .jarvis-fab:hover { transform:scale(1.1); }
+        .jarvis-chat { position:fixed; bottom:90px; right:24px; width:380px; height:500px; background:var(--bg-secondary); border-radius:16px; border:1px solid var(--border); display:none; flex-direction:column; z-index:1000; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+        .jarvis-chat.open { display:flex; }
+        .jarvis-chat-header { padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+        .jarvis-chat-header .dot { width:8px; height:8px; border-radius:50%; background:var(--success); animation:pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        .jarvis-chat-body { flex:1; overflow-y:auto; padding:16px; }
+        .chat-msg { margin-bottom:12px; max-width:85%; }
+        .chat-msg.jarvis { margin-right:auto; }
+        .chat-msg.user { margin-left:auto; }
+        .chat-bubble { padding:10px 14px; border-radius:12px; font-size:13px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+        .chat-msg.jarvis .chat-bubble { background:var(--bg-card); border:1px solid var(--border); }
+        .chat-msg.user .chat-bubble { background:var(--accent); color:white; }
+        .jarvis-chat-input { padding:12px; border-top:1px solid var(--border); display:flex; gap:8px; }
+        .jarvis-chat-input input { flex:1; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text-primary); font-size:13px; outline:none; }
+        .jarvis-chat-input input:focus { border-color:var(--accent); }
+        .jarvis-chat-input button { background:var(--accent); border:none; color:white; padding:10px 14px; border-radius:8px; cursor:pointer; }
+
+        /* Scan Modal */
+        .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:2000; }
+        .modal-overlay.open { display:flex; }
+        .modal { background:var(--bg-secondary); border-radius:16px; padding:24px; width:480px; border:1px solid var(--border); }
+        .modal h3 { margin-bottom:16px; }
+        .form-group { margin-bottom:14px; }
+        .form-group label { display:block; font-size:12px; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:1px; }
+        .form-group input, .form-group select { width:100%; padding:10px 14px; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; color:var(--text-primary); font-size:13px; outline:none; }
+        .form-group input:focus, .form-group select:focus { border-color:var(--accent); }
+        .form-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+
+        /* Loading */
+        .loading { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+        @keyframes spin { to{transform:rotate(360deg)} }
+
+        /* Toast */
+        .toast { position:fixed; top:20px; right:20px; padding:14px 20px; border-radius:10px; font-size:13px; z-index:3000; transform:translateX(400px); transition:transform .3s; }
+        .toast.show { transform:translateX(0); }
+        .toast.success { background:var(--success); color:white; }
+        .toast.error { background:var(--danger); color:white; }
+
+        /* Responsive */
+        @media(max-width:1200px) { .stats-grid{grid-template-columns:repeat(2,1fr);} .grid-2,.grid-equal{grid-template-columns:1fr;} }
+        @media(max-width:768px) { .sidebar{display:none;} .main{margin-left:0;} .stats-grid{grid-template-columns:1fr;} }
+    </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+    <div class="sidebar-logo">
+        <h1>🤖 JARVIS</h1>
+        <span>AI Agency Operating System v1.0</span>
+    </div>
+
+    <div class="nav-section">Ana Menü</div>
+    <div class="nav-item active" onclick="showPage('dashboard')"><span class="icon">📊</span> Dashboard</div>
+    <div class="nav-item" onclick="showPage('leads')"><span class="icon">👤</span> Leads <span class="nav-badge" id="lead-count-badge">0</span></div>
+    <div class="nav-item" onclick="showPage('customers')"><span class="icon">🏢</span> Müşteriler</div>
+    <div class="nav-item" onclick="showPage('pipeline')"><span class="icon">📈</span> Pipeline</div>
+
+    <div class="nav-section">Araçlar</div>
+    <div class="nav-item" onclick="openScanModal()"><span class="icon">🗺️</span> Harita Tarama</div>
+    <div class="nav-item" onclick="showPage('playbooks')"><span class="icon">📚</span> Playbooks</div>
+    <div class="nav-item" onclick="showPage('roi')"><span class="icon">💰</span> ROI Hesapla</div>
+    <div class="nav-item" onclick="showPage('pitch')"><span class="icon">📝</span> Pitch Scripts</div>
+
+    <div class="nav-section">Yönetim</div>
+    <div class="nav-item" onclick="showPage('contracts')"><span class="icon">📄</span> Sözleşmeler</div>
+    <div class="nav-item" onclick="showPage('revenue')"><span class="icon">🎯</span> Gelir Planı</div>
+    <div class="nav-item" onclick="showPage('board')"><span class="icon">🏛️</span> Board Meeting</div>
+    <div class="nav-item" onclick="showPage('projects')"><span class="icon">🔨</span> Projeler (MCP)</div>
+
+    <div class="nav-section">Sistem</div>
+    <div class="nav-item" onclick="showPage('settings')"><span class="icon">⚙️</span> Ayarlar</div>
+</nav>
+
+<!-- Main Content -->
+<main class="main">
+    <!-- Header -->
+    <div class="header">
+        <div>
+            <h2 id="page-title">Dashboard</h2>
+            <span style="font-size:12px;color:var(--text-muted)" id="last-updated">Son güncelleme: —</span>
+        </div>
+        <div class="header-actions">
+            <button class="btn btn-outline" onclick="refreshDashboard()">🔄 Yenile</button>
+            <button class="btn btn-primary" onclick="openScanModal()">🗺️ Yeni Tarama</button>
+        </div>
+    </div>
+
+    <!-- Dashboard Page -->
+    <div id="page-dashboard">
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Aylık Gelir (MRR)</div>
+                <div class="stat-value blue" id="stat-mrr">₺0</div>
+                <div class="stat-change up" id="stat-mrr-change">↑ Yükleniyor...</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Aktif Müşteri</div>
+                <div class="stat-value green" id="stat-customers">0</div>
+                <div class="stat-change up">↑ Hedef: 20</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pipeline Değeri</div>
+                <div class="stat-value yellow" id="stat-pipeline">₺0</div>
+                <div class="stat-change">Açık fırsatlar</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Lead Havuzu</div>
+                <div class="stat-value red" id="stat-leads">0</div>
+                <div class="stat-change" id="stat-hot-leads">🔥 0 sıcak lead</div>
+            </div>
+        </div>
+
+        <!-- Hot Leads + Health Score -->
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">🔥 Sıcak Lead'ler (Skor ≥ 75)</span>
+                    <span class="card-action" onclick="showPage('leads')">Tümünü Gör →</span>
+                </div>
+                <table class="table">
+                    <thead><tr><th>İşletme</th><th>Sektör</th><th>Skor</th><th>Paket</th><th>Aksiyon</th></tr></thead>
+                    <tbody id="hot-leads-table">
+                        <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Yükleniyor...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card" style="text-align:center">
+                <div class="card-header"><span class="card-title">🏥 Ajans Sağlık Skoru</span></div>
+                <div class="score-ring">
+                    <svg width="120" height="120">
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border)" stroke-width="8"/>
+                        <circle cx="60" cy="60" r="52" fill="none" stroke="var(--accent)" stroke-width="8" 
+                                stroke-dasharray="327" stroke-dashoffset="327" stroke-linecap="round" id="health-ring"/>
+                    </svg>
+                    <div class="value" id="health-score">—</div>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted)" id="health-label">Yükleniyor...</div>
+            </div>
+        </div>
+
+        <!-- Pipeline + Activity -->
+        <div class="grid-equal">
+            <div class="card">
+                <div class="card-header"><span class="card-title">📈 Satış Pipeline</span></div>
+                <div class="pipeline" id="pipeline-stages">
+                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Yeni</div></div>
+                    <div class="pipeline-stage"><div class="count">—</div><div class="label">İletişim</div></div>
+                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Demo</div></div>
+                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Teklif</div></div>
+                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Kazanıldı</div></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><span class="card-title">⚡ Son Aktiviteler</span></div>
+                <div id="activity-feed">
+                    <div class="activity-item">
+                        <div class="activity-icon scan">🗺️</div>
+                        <div><div class="activity-text">Sistem başlatıldı</div><div class="activity-time">Şimdi</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Interactive Map -->
+        <div class="card" style="margin-top: 16px;">
+            <div class="card-header"><span class="card-title">🌍 Canlı Harita (Live Intelligence)</span></div>
+            <div id="map" style="height: 650px; width: 100%; border-radius: 8px; z-index: 1;"></div>
+        </div>
+
+        <!-- JARVIS Recommendations -->
+        <div class="card">
+            <div class="card-header"><span class="card-title">🤖 JARVIS Önerileri</span></div>
+            <div id="recommendations" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+                <div style="padding:14px;background:var(--bg-primary);border-radius:8px;font-size:13px;">
+                    <div style="margin-bottom:6px">🗺️ <strong>Harita Taraması</strong></div>
+                    <div style="color:var(--text-muted)">Yeni lead'ler bulmak için bir bölge taraması başlatın</div>
+                </div>
+                <div style="padding:14px;background:var(--bg-primary);border-radius:8px;font-size:13px;">
+                    <div style="margin-bottom:6px">📊 <strong>Lead Analizi</strong></div>
+                    <div style="color:var(--text-muted)">Mevcut lead'lerinizi puanlayın ve önceliklendirin</div>
+                </div>
+                <div style="padding:14px;background:var(--bg-primary);border-radius:8px;font-size:13px;">
+                    <div style="margin-bottom:6px">🎯 <strong>Gelir Planı</strong></div>
+                    <div style="color:var(--text-muted)">6 aylık gelir yol haritanızı oluşturun</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leads Page -->
+    <div id="page-leads" style="display:none">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">👤 Tüm Lead'ler</span>
+                <div style="display:flex;gap:8px">
+                    <select id="filter-sector" onchange="loadLeads()" style="padding:6px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px;">
+                        <option value="">Tüm Sektörler</option>
+                        <option value="dental">Diş Kliniği</option>
+                        <option value="law_firm">Hukuk Bürosu</option>
+                        <option value="accounting">Muhasebe</option>
+                        <option value="gym">Spor Salonu</option>
+                        <option value="auto_gallery">Oto Galeri</option>
+                        <option value="construction">İnşaat</option>
+                    </select>
+                    <select id="filter-status" onchange="loadLeads()" style="padding:6px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px;">
+                        <option value="">Tüm Durumlar</option>
+                        <option value="new">Yeni</option>
+                        <option value="contacted">İletişime Geçildi</option>
+                        <option value="demo_scheduled">Demo Planlandı</option>
+                        <option value="proposal_sent">Teklif Gönderildi</option>
+                        <option value="won">Kazanıldı</option>
+                        <option value="lost">Kaybedildi</option>
+                    </select>
+                </div>
+            </div>
+            <table class="table">
+                <thead><tr><th>İşletme</th><th>Sektör</th><th>Şehir</th><th>Skor</th><th>Paket</th><th>Durum</th><th>Aksiyon</th></tr></thead>
+                <tbody id="all-leads-table">
+                    <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Yükleniyor...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Playbooks Page -->
+    <div id="page-playbooks" style="display:none">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;" id="playbooks-grid">
+        </div>
+    </div>
+
+    <!-- ROI Page -->
+    <div id="page-roi" style="display:none">
+        <div class="card" style="max-width:600px">
+            <div class="card-header"><span class="card-title">💰 ROI Hesaplayıcı</span></div>
+            <div class="form-group">
+                <label>Sektör</label>
+                <select id="roi-sector" style="width:100%;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);">
+                    <option value="dental">Diş Kliniği</option>
+                    <option value="law_firm">Hukuk Bürosu</option>
+                    <option value="accounting">Muhasebe</option>
+                    <option value="gym">Spor Salonu</option>
+                    <option value="auto_gallery">Oto Galeri</option>
+                    <option value="construction">İnşaat</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Paket</label>
+                <select id="roi-package" style="width:100%;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);">
+                    <option value="Starter">Starter (3.000-8.000 TL)</option>
+                    <option value="Professional">Professional (8.000-15.000 TL)</option>
+                    <option value="Premium" selected>Premium (15.000-25.000 TL)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Aylık Müşteri Sayısı</label>
+                <input type="number" id="roi-customers" value="10" min="1" style="width:100%;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);">
+            </div>
+            <button class="btn btn-primary" onclick="calculateROI()" style="width:100%;margin-top:8px">Hesapla</button>
+            <div id="roi-result" style="margin-top:16px"></div>
+        </div>
+    </div>
+
+    <!-- Other pages placeholder -->
+    <div id="page-customers" style="display:none"><div class="card"><div class="card-title">🏢 Müşteriler — API'den yükleniyor...</div></div></div>
+    <div id="page-pipeline" style="display:none"><div class="card"><div class="card-title">📈 Pipeline — API'den yükleniyor...</div></div></div>
+    <div id="page-pitch" style="display:none"><div class="card"><div class="card-title">📝 Pitch Scripts — API'den yükleniyor...</div></div></div>
+    <div id="page-contracts" style="display:none"><div class="card"><div class="card-title">📄 Sözleşmeler — API'den yükleniyor...</div></div></div>
+    <div id="page-revenue" style="display:none"><div class="card"><div class="card-title">🎯 Gelir Planı — API'den yükleniyor...</div></div></div>
+    <div id="page-board" style="display:none"><div class="card"><div class="card-title">🏛️ Board Meeting — API'den yükleniyor...</div></div></div>
+    <div id="page-projects" style="display:none"><div class="card"><div class="card-title">🔨 MCP Projeler — API'den yükleniyor...</div></div></div>
+    <div id="page-settings" style="display:none"><div class="card"><div class="card-title">⚙️ Ayarlar — API'den yükleniyor...</div></div></div>
+</main>
+
+<!-- Scan Modal -->
+<div class="modal-overlay" id="scan-modal">
+    <div class="modal">
+        <h3>🗺️ New Map Scan</h3>
+        <div class="form-group">
+            <label>Location (City + Country)</label>
+            <input type="text" id="scan-location" placeholder="Melbourne CBD, Australia" value="Melbourne CBD, Australia">
+        </div>
+        <div class="form-group">
+            <label>Sector</label>
+            <select id="scan-sector">
+                <option value="dental">Dental Clinic</option>
+                <option value="restaurant">Restaurant / Café</option>
+                <option value="law_firm">Law Firm</option>
+                <option value="accounting">Accounting / CPA</option>
+                <option value="gym">Gym / Fitness</option>
+                <option value="real_estate">Real Estate</option>
+                <option value="beauty_salon">Beauty Salon</option>
+                <option value="medical_clinic">Medical Clinic</option>
+                <option value="auto_gallery">Car Dealership</option>
+                <option value="construction">Construction</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Country Code</label>
+            <select id="scan-country">
+                <option value="au">🇦🇺 Australia (AU)</option>
+                <option value="us">🇺🇸 United States (US)</option>
+                <option value="gb">🇬🇧 United Kingdom (GB)</option>
+                <option value="ca">🇨🇦 Canada (CA)</option>
+                <option value="nz">🇳🇿 New Zealand (NZ)</option>
+                <option value="tr">🇹🇷 Türkiye (TR)</option>
+                <option value="de">🇩🇪 Germany (DE)</option>
+                <option value="fr">🇫🇷 France (FR)</option>
+                <option value="ae">🇦🇪 UAE (AE)</option>
+                <option value="sg">🇸🇬 Singapore (SG)</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Language</label>
+            <select id="scan-language">
+                <option value="en">English</option>
+                <option value="tr">Türkçe</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Français</option>
+                <option value="ar">العربية</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Max Results</label>
+            <select id="scan-max">
+                <option value="20">20 businesses</option>
+                <option value="50" selected>50 businesses</option>
+                <option value="100">100 businesses</option>
+            </select>
+        </div>
+        <div id="scan-status" style="display:none;padding:10px;background:var(--bg-primary);border-radius:8px;font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
+        <div class="form-actions">
+            <button class="btn btn-outline" onclick="closeScanModal()">Cancel</button>
+            <button class="btn btn-primary" id="scan-btn" onclick="startScan()">🚀 Start Scan</button>
+        </div>
+    </div>
+</div>
+
+<!-- JARVIS Chat -->
+<button class="jarvis-fab" onclick="toggleChat()">🤖</button>
+<div class="jarvis-chat" id="jarvis-chat">
+    <div class="jarvis-chat-header">
+        <div class="dot"></div>
+        <div><strong>JARVIS</strong><br><span style="font-size:11px;color:var(--text-muted)">AI Agency Assistant</span></div>
+    </div>
+    <div class="jarvis-chat-body" id="chat-body">
+        <div class="chat-msg jarvis">
+            <div class="chat-bubble">Merhaba! 👋 Ben JARVIS, AI ajans asistanınız. Size nasıl yardımcı olabilirim?<br><br>
+            Örnek komutlar:<br>
+            • "İzmir'de diş kliniklerini tara"<br>
+            • "ROI hesapla"<br>
+            • "Board meeting raporu"<br>
+            • "Gelir planı oluştur"</div>
+        </div>
+    </div>
+    <div class="jarvis-chat-input">
+        <input type="text" id="chat-input" placeholder="JARVIS'e bir şey sor..." onkeypress="if(event.key==='Enter')sendChat()">
+        <button onclick="sendChat()">➤</button>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================
+// API Configuration
+// ============================================
+const API_BASE = 'http://localhost:8000';
+
+// ============================================
+// API Helper
+// ============================================
+async function api(endpoint, method = 'GET', body = null) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    try {
+        const res = await fetch(`${API_BASE}${endpoint}`, opts);
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        return await res.json();
+    } catch (e) {
+        console.error('API Error:', e);
+        return null;
+    }
+}
+
+// ============================================
+// Navigation
+// ============================================
+function showPage(page) {
+    document.querySelectorAll('[id^="page-"]').forEach(p => p.style.display = 'none');
+    document.getElementById(`page-${page}`).style.display = 'block';
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    event?.target?.closest?.('.nav-item')?.classList.add('active');
+
+    const titles = {
+        dashboard: 'Dashboard', leads: 'Lead Yönetimi', customers: 'Müşteriler',
+        pipeline: 'Satış Pipeline', playbooks: 'Playbooks', roi: 'ROI Hesaplayıcı',
+        pitch: 'Pitch Scripts', contracts: 'Sözleşmeler', revenue: 'Gelir Planı',
+        board: 'Board Meeting', projects: 'Projeler (MCP)', settings: 'Ayarlar'
+    };
+    document.getElementById('page-title').textContent = titles[page] || page;
+
+    if (page === 'leads') loadLeads();
+    if (page === 'playbooks') loadPlaybooks();
+}
+
+// ============================================
+// Dashboard
+// ============================================
+let dashboardMap;
+
+async function loadMapData() {
+    if (!dashboardMap) {
+        dashboardMap = L.map('map').setView([-37.8136, 144.9631], 13);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(dashboardMap);
+    }
+    
+    // Clear existing markers
+    dashboardMap.eachLayer((layer) => {
+        if (layer instanceof L.Marker) {
+            dashboardMap.removeLayer(layer);
+        }
+    });
+
+    const data = await api('/api/leads?limit=100');
+    if (data?.leads) {
+        let coords = [];
+        data.leads.forEach(l => {
+            if (l.latitude && l.longitude) {
+                const marker = L.marker([l.latitude, l.longitude]).addTo(dashboardMap);
+                const popupStr = `
+                    <div style="font-family:Inter; color:#333; min-width: 150px;">
+                        <h4 style="margin:0 0 5px 0;">${l.business_name}</h4>
+                        <div style="font-size: 11px; margin-bottom: 5px;">${l.sector} • ${l.city}</div>
+                        <div style="display:flex; justify-content: space-between; align-items:center;">
+                            <b>Score: <span style="color:${l.score >= 75 ? 'red' : 'orange'}">${l.score}/100</span></b>
+                            <span style="background:#ddd; padding: 2px 5px; border-radius:3px; font-size:10px;">${l.package_recommendation||'N/A'}</span>
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupStr);
+                coords.push([l.latitude, l.longitude]);
+            }
+        });
+        
+        if (coords.length > 0) {
+            dashboardMap.fitBounds(coords, {padding: [30, 30]});
+        }
+    }
+}
+
+async function refreshDashboard() {
+    document.getElementById('last-updated').textContent = `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}`;
+
+    // Stats
+    const stats = await api('/api/dashboard/stats');
+    if (stats) {
+        document.getElementById('stat-leads').textContent = stats.total_leads;
+        document.getElementById('stat-customers').textContent = stats.active_customers;
+        document.getElementById('stat-hot-leads').textContent = `🔥 ${stats.hot_leads} sıcak lead`;
+        document.getElementById('lead-count-badge').textContent = stats.total_leads;
+    }
+
+    // Pipeline
+    const pipeline = await api('/api/dashboard/pipeline');
+    if (pipeline?.pipeline) {
+        const p = pipeline.pipeline;
+        const stages = document.getElementById('pipeline-stages');
+        stages.innerHTML = `
+            <div class="pipeline-stage"><div class="count">${p.new||0}</div><div class="label">Yeni</div></div>
+            <div class="pipeline-stage"><div class="count">${p.contacted||0}</div><div class="label">İletişim</div></div>
+            <div class="pipeline-stage"><div class="count">${p.demo_scheduled||0}</div><div class="label">Demo</div></div>
+            <div class="pipeline-stage"><div class="count">${p.proposal_sent||0}</div><div class="label">Teklif</div></div>
+            <div class="pipeline-stage"><div class="count">${p.won||0}</div><div class="label">Kazanıldı</div></div>
+        `;
+    }
+
+    // Hot leads
+    const leads = await api('/api/leads?min_score=75&limit=5');
+    if (leads?.leads) {
+        const tbody = document.getElementById('hot-leads-table');
+        if (leads.leads.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Henüz sıcak lead yok. Harita taraması başlatın!</td></tr>';
+        } else {
+            tbody.innerHTML = leads.leads.map(l => `
+                <tr>
+                    <td><strong>${l.business_name}</strong></td>
+                    <td>${l.sector || '—'}</td>
+                    <td><strong style="color:var(--danger)">${l.score}</strong>/100</td>
+                    <td><span class="badge badge-${(l.package_recommendation||'').toLowerCase()}">${l.package_recommendation||'—'}</span></td>
+                    <td><button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="analyzeLead(${l.id})">Analiz</button></td>
+                </tr>
+            `).join('');
+        }
+    }
+    
+    await loadMapData();
+
+    showToast('Dashboard güncellendi', 'success');
+}
+
+// ============================================
+// Leads
+// ============================================
+async function loadLeads() {
+    const sector = document.getElementById('filter-sector')?.value || '';
+    const status = document.getElementById('filter-status')?.value || '';
+    let url = '/api/leads?limit=50';
+    if (sector) url += `&sector=${sector}`;
+    if (status) url += `&status=${status}`;
+
+    const data = await api(url);
+    const tbody = document.getElementById('all-leads-table');
+    if (!data?.leads?.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Lead bulunamadı</td></tr>';
+        return;
+    }
+    tbody.innerHTML = data.leads.map(l => `
+        <tr>
+            <td><strong>${l.business_name}</strong></td>
+            <td>${l.sector||'—'}</td>
+            <td>${l.city||'—'} ${l.district||''}</td>
+            <td><strong style="color:${l.score>=75?'var(--danger)':l.score>=50?'var(--warning)':'var(--accent)'}">${l.score}</strong></td>
+            <td><span class="badge badge-${(l.package_recommendation||'starter').toLowerCase()}">${l.package_recommendation||'—'}</span></td>
+            <td>${l.status||'new'}</td>
+            <td>
+                <button class="btn btn-primary" style="padding:4px 8px;font-size:11px" onclick="analyzeLead(${l.id})">📊</button>
+                <button class="btn btn-outline" style="padding:4px 8px;font-size:11px" onclick="generatePitch(${l.id},'${l.business_name}','${l.sector}')">📝</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// ============================================
+// Lead Analysis
+// ============================================
+async function analyzeLead(leadId) {
+    showToast('Lead analiz ediliyor...', 'success');
+    const lead = await api(`/api/leads/${leadId}`);
+    if (lead) {
+        const analysis = await api('/api/leads/analyze', 'POST', lead);
+        if (analysis) {
+            alert(`📊 Lead Analizi: ${lead.business_name}\n\nSkor: ${analysis.score.total_score}/100\nPaket: ${analysis.score.package_recommendation}\nROI: %${analysis.roi.roi_percent}\nGeri Ödeme: ${analysis.roi.payback_days} gün\nPlaybook: ${analysis.playbook}`);
+        }
+    }
+}
+
+// ============================================
+// Pitch Generation
+// ============================================
+async function generatePitch(leadId, name, sector) {
+    const result = await api('/api/pitch', 'POST', {
+        business_name: name, sector: sector, contact_person: 'Yetkili'
+    });
+    if (result?.scripts) {
+        alert(`📝 ${name} Pitch Scripts:\n\n${result.scripts.cold_call.substring(0, 500)}...`);
+    }
+}
+
+// ============================================
+// Playbooks
+// ============================================
+async function loadPlaybooks() {
+    const data = await api('/api/playbooks');
+    if (!data?.playbooks) return;
+
+    const grid = document.getElementById('playbooks-grid');
+    const icons = { dental:'🦷', law_firm:'⚖️', accounting:'📊', gym:'💪', auto_gallery:'🚗', construction:'🏗️' };
+    const names = { dental:'Diş Kliniği', law_firm:'Hukuk Bürosu', accounting:'Muhasebe', gym:'Spor Salonu', auto_gallery:'Oto Galeri', construction:'İnşaat' };
+
+    grid.innerHTML = Object.entries(data.playbooks).map(([key, pb]) => `
+        <div class="card" style="cursor:pointer" onclick="showPlaybookDetail('${key}')">
+            <div style="font-size:36px;margin-bottom:12px">${icons[key]||'📋'}</div>
+            <div style="font-size:15px;font-weight:600;margin-bottom:4px">${names[key]||key}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${pb.name}</div>
+            <div style="display:flex;justify-content:space-between;font-size:12px">
+                <span>📅 ${pb.duration_months} ay</span>
+                <span>🎯 %${pb.target_roi} ROI</span>
+                <span>📋 ${pb.strategy_count} strateji</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function showPlaybookDetail(sector) {
+    const pb = await api(`/api/playbooks/${sector}`);
+    if (pb) {
+        alert(`📚 ${pb.name}\n\nStratejiler:\n${pb.strategies.map((s,i) => `${i+1}. ${s}`).join('\n')}\n\nSüre: ${pb.duration_months} ay\nHedef ROI: %${pb.target_roi}`);
+    }
+}
+
+// ============================================
+// ROI Calculator
+// ============================================
+async function calculateROI() {
+    const sector = document.getElementById('roi-sector').value;
+    const pkg = document.getElementById('roi-package').value;
+    const customers = parseInt(document.getElementById('roi-customers').value);
+
+    const result = await api('/api/roi', 'POST', {
+        sector, package: pkg, current_monthly_customers: customers
+    });
+
+    if (result) {
+        document.getElementById('roi-result').innerHTML = `
+            <div style="background:var(--bg-primary);border-radius:12px;padding:20px;margin-top:12px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div><div style="font-size:11px;color:var(--text-muted)">AYLIK MALİYET</div><div style="font-size:20px;font-weight:700;color:var(--danger)">₺${result.monthly_cost.toLocaleString()}</div></div>
+                    <div><div style="font-size:11px;color:var(--text-muted)">AYLIK GELİR</div><div style="font-size:20px;font-weight:700;color:var(--success)">₺${result.monthly_revenue_generated.toLocaleString()}</div></div>
+                    <div><div style="font-size:11px;color:var(--text-muted)">ROI</div><div style="font-size:20px;font-weight:700;color:var(--accent)">%${result.roi_percent}</div></div>
+                    <div><div style="font-size:11px;color:var(--text-muted)">GERİ ÖDEME</div><div style="font-size:20px;font-weight:700;color:var(--warning)">${result.payback_days} gün</div></div>
+                    <div><div style="font-size:11px;color:var(--text-muted)">YENİ MÜŞTERİ/AY</div><div style="font-size:20px;font-weight:700">+${result.new_customers_per_month}</div></div>
+                    <div><div style="font-size:11px;color:var(--text-muted)">YILLIK NET KÂR</div><div style="font-size:20px;font-weight:700;color:var(--success)">₺${result.net_profit.toLocaleString()}</div></div>
+                </div>
+            </div>
+        `;
+    }
+}
+
+// ============================================
+// Scan
+// ============================================
+function openScanModal() { document.getElementById('scan-modal').classList.add('open'); }
+function closeScanModal() { document.getElementById('scan-modal').classList.remove('open'); }
+
+async function startScan() {
+    const location   = document.getElementById('scan-location').value.trim();
+    const sector     = document.getElementById('scan-sector').value;
+    const country    = document.getElementById('scan-country').value;
+    const language   = document.getElementById('scan-language').value;
+    const maxResults = parseInt(document.getElementById('scan-max').value);
+
+    if (!location) { showToast('Please enter a location', 'error'); return; }
+
+    // Show status, disable button
+    const btn    = document.getElementById('scan-btn');
+    const status = document.getElementById('scan-status');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Starting...';
+    status.style.display = 'block';
+    status.innerHTML = '⏳ Connecting to Apify Google Maps scraper...';
+
+    const result = await api('/api/v1/scan/start', 'POST', {
+        sector,
+        location,
+        country_code: country,
+        language,
+        max_results: maxResults,
+        wait_for_completion: false
+    });
+
+    btn.disabled = false;
+    btn.innerHTML = '🚀 Start Scan';
+
+    if (result && (result.scan_id || (result.scan && result.scan.run_id))) {
+        const runId = result.scan_id || result.scan.run_id;
+        status.innerHTML = `✅ Scan started! Run ID: <code>${runId}</code><br>Apify is scraping Google Maps. This takes 1–3 minutes.<br><br>📊 Polling every 15 seconds...`;
+        addActivity('scan', `${location} — ${sector} scan started (${maxResults} results)`);
+        showToast(`🗺️ Scanning ${location}...`, 'success');
+
+        // Auto-poll every 15s up to 3min and show results when done
+        let attempts = 0;
+        const poll = setInterval(async () => {
+            attempts++;
+            const s = await api(`/api/v1/scan/status/${runId}`);
+            if (!s) return;
+            status.innerHTML = `⏳ [${attempts * 15}s] Status: <strong>${s.status}</strong> — Run ID: ${runId}`;
+            if (s.status === 'COMPLETED' || s.status === 'SUCCEEDED') {
+                clearInterval(poll);
+                const res = await api(`/api/v1/scan/results/${runId}`);
+                if (res && res.leads) {
+                    const count = res.leads.length;
+                    const top   = res.leads.slice(0, 3).map(l => `• ${l.name} (${l.score}/100)`).join('<br>');
+                    status.innerHTML = `✅ Done! <strong>${count} businesses</strong> found in ${location}.<br><br><strong>Top results:</strong><br>${top}<br><br>Check Leads section for full list.`;
+                    showToast(`✅ Found ${count} businesses in ${location}!`, 'success');
+                    refreshDashboard();
+                }
+            } else if (['FAILED','ABORTED','TIMED-OUT'].includes(s.status)) {
+                clearInterval(poll);
+                status.innerHTML = `❌ Scan ${s.status}. Check your Apify token in .env`;
+                showToast('Scan failed — check API token', 'error');
+            }
+            if (attempts >= 12) clearInterval(poll); // stop after 3min
+        }, 15000);
+    } else {
+        status.innerHTML = '❌ Failed to start scan. Check: backend running at localhost:8000? APIFY_API_TOKEN set in .env?';
+        showToast('Scan failed to start', 'error');
+    }
+}
+
+// ============================================
+// JARVIS Chat
+// ============================================
+function toggleChat() {
+    document.getElementById('jarvis-chat').classList.toggle('open');
+}
+
+async function sendChat() {
+    const input = document.getElementById('chat-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    addChatMsg(msg, 'user');
+    input.value = '';
+
+    const result = await api('/api/command', 'POST', { command: msg });
+    if (result?.response) {
+        addChatMsg(result.response, 'jarvis');
+        
+        if (result.response.includes('Harita taraması')) {
+            openScanModal();
+        }
+
+        // Play TTS audio
+        try {
+            const ttsRes = await fetch('http://localhost:8000/api/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: result.response })
+            });
+            if (ttsRes.ok) {
+                const blob = await ttsRes.blob();
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.play();
+            }
+        } catch (e) {
+            console.error("TTS output failed:", e);
+        }
+    } else {
+        addChatMsg('Bağlantı hatası. API sunucusunun çalıştığından emin olun.', 'jarvis');
+    }
+}
+
+function addChatMsg(text, sender) {
+    const body = document.getElementById('chat-body');
+    const msg = document.createElement('div');
+    msg.className = `chat-msg ${sender}`;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+    bubble.textContent = text;
+
+    msg.appendChild(bubble);
+    body.appendChild(msg);
+    body.scrollTop = body.scrollHeight;
+}
+
+// ============================================
+// Utilities
+// ============================================
+function addActivity(type, text) {
+    const feed = document.getElementById('activity-feed');
+    const icons = { scan:'🗺️', deal:'✅', call:'📞', alert:'⚠️' };
+    const now = new Date().toLocaleTimeString('tr-TR');
+    feed.innerHTML = `
+        <div class="activity-item">
+            <div class="activity-icon ${type}">${icons[type]||'📌'}</div>
+            <div><div class="activity-text">${text}</div><div class="activity-time">${now}</div></div>
+        </div>
+    ` + feed.innerHTML;
+}
+
+function showToast(msg, type = 'success') {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.className = `toast ${type} show`;
+    setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// ============================================
+// Init
+// ============================================
+document.addEventListener('DOMContentLoaded', () => {
+    refreshDashboard();
+});
+</script>
+</body>
+</html>
