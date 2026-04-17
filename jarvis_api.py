@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-JARVIS AI Agency OS — FastAPI Backend
-======================================
-RESTful API endpoints for all JARVIS modules.
-
-Başlatma:
-    uvicorn jarvis_api:app --reload --port 8000
-
-Docs:
-    http://localhost:8000/docs (Swagger UI)
-    http://localhost:8000/redoc (ReDoc)
+JARVIS Operator Cockpit API
+===========================
+FastAPI backend for the Australia-first global decision engine.
 """
 
 from fastapi import FastAPI, HTTPException, Query, Depends
@@ -40,9 +33,9 @@ from jarvis_scan_api import router as scan_router
 # APP INITIALIZATION
 # ============================================
 app = FastAPI(
-    title="JARVIS AI Agency OS",
-    description="AI Agency Operating System — Full API",
-    version="1.0.0",
+    title="JARVIS Operator Cockpit",
+    description="Decision-first API for candidate discovery, comparison, operator workflow, and proposal intelligence.",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -93,6 +86,7 @@ class LeadInput(BaseModel):
     visited_website: bool = Field(default=False)
     opened_email: bool = Field(default=False)
     social_active: bool = Field(default=False)
+    market_code: str = Field(default="AU", example="AU")
 
 class LeadScoreResponse(BaseModel):
     total_score: int
@@ -119,6 +113,7 @@ class ROIInput(BaseModel):
     sector: str = Field(..., example="dental")
     package: str = Field(..., example="Premium")
     current_monthly_customers: int = Field(default=10, ge=0)
+    market_code: str = Field(default="AU", example="AU")
 
 # --- Contract Models ---
 class ContractInput(BaseModel):
@@ -128,6 +123,7 @@ class ContractInput(BaseModel):
     sector: str = Field(..., example="dental")
     package: str = Field(..., example="Premium")
     monthly_fee: float = Field(..., example=19000)
+    market_code: str = Field(default="AU", example="AU")
 
 # --- Revenue Models ---
 class RevenueInput(BaseModel):
@@ -160,10 +156,47 @@ class PitchInput(BaseModel):
     contact_person: str = Field(default="Yetkili")
     sector: str = Field(..., example="dental")
     score_data: Dict = Field(default={})
+    market_code: str = Field(default="AU", example="AU")
 
 # --- Command Model ---
 class CommandInput(BaseModel):
     command: str = Field(..., description="Kullanıcı doğal dil komutu")
+    selected_lead: Optional[Dict] = Field(default=None, description="Currently selected lead from the map/chat")
+    candidate_context: List[Dict] = Field(default_factory=list, description="Currently plotted candidate list")
+    market_code: str = Field(default="AU", description="Presentation/commercial market context")
+
+class CandidateCompareInput(BaseModel):
+    candidates: List[Dict] = Field(default_factory=list)
+    market_code: str = Field(default="AU")
+
+class CandidateDecisionInput(BaseModel):
+    candidate: Dict = Field(...)
+    decision_status: str = Field(default="monitor")
+    recommended_platform: Optional[str] = Field(default=None)
+    recommended_service: Optional[str] = Field(default=None)
+    proposal_recommended: Optional[bool] = Field(default=None)
+    owner: str = Field(default="")
+    next_action: str = Field(default="")
+    follow_up_date: Optional[str] = Field(default=None)
+    confidence: int = Field(default=60, ge=0, le=100)
+    operator_notes: str = Field(default="")
+    market_code: str = Field(default="AU")
+
+class CandidateWorkflowUpdateInput(BaseModel):
+    decision_status: Optional[str] = Field(default=None)
+    recommended_platform: Optional[str] = Field(default=None)
+    recommended_service: Optional[str] = Field(default=None)
+    proposal_recommended: Optional[bool] = Field(default=None)
+    owner: Optional[str] = Field(default=None)
+    next_action: Optional[str] = Field(default=None)
+    follow_up_date: Optional[str] = Field(default=None)
+    confidence: Optional[int] = Field(default=None, ge=0, le=100)
+    operator_notes: Optional[str] = Field(default=None)
+    market_code: Optional[str] = Field(default=None)
+
+class ProposalRequestInput(BaseModel):
+    candidate: Dict = Field(...)
+    market_code: str = Field(default="AU")
 
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text for OpenAI TTS generation")
@@ -177,8 +210,8 @@ class TTSRequest(BaseModel):
 @app.get("/", tags=["System"])
 async def root():
     return {
-        "name": "JARVIS AI Agency OS",
-        "version": "1.0.0",
+        "name": "JARVIS Operator Cockpit",
+        "version": "2.0.0",
         "status": "active",
         "endpoints": {
             "docs": "/docs",
@@ -203,24 +236,29 @@ async def health_check():
         "tables": startup_result["tables_created"]
     }
 
+@app.get("/api/market-config", tags=["System"])
+async def market_config(market_code: str = Query(default="AU")):
+    """Current market presentation and commercial defaults."""
+    return {"market_profile": jarvis.get_market_profile(market_code)}
+
 
 # --- Lead Scoring & Analysis ---
 @app.post("/api/leads/score", response_model=LeadScoreResponse, tags=["Leads"])
 async def score_lead(lead: LeadInput):
     """Lead puanlama — 0-100 skor + paket önerisi"""
-    score = jarvis.scoring.calculate_score(lead.dict())
+    score = jarvis.scoring.calculate_score(lead.dict(), lead.market_code)
     return score
 
 @app.post("/api/leads/analyze", tags=["Leads"])
 async def analyze_lead(lead: LeadInput):
     """Full lead analizi — skor + ROI + pitch + playbook"""
-    analysis = jarvis.analyze_lead(lead.dict())
+    analysis = jarvis.analyze_lead(lead.dict(), lead.market_code)
     return analysis
 
 @app.post("/api/leads/save", tags=["Leads"])
 async def save_lead(lead: LeadInput):
     """Lead'i veritabanına kaydet"""
-    score = jarvis.scoring.calculate_score(lead.dict())
+    score = jarvis.scoring.calculate_score(lead.dict(), lead.market_code)
 
     jarvis.db.execute(
         """INSERT INTO leads (business_name, sector, city, district, phone, email, 
@@ -298,15 +336,15 @@ async def scan_report(scan: ScanInput, results: List[Dict] = []):
 @app.post("/api/roi", tags=["ROI"])
 async def calculate_roi(roi_input: ROIInput):
     """ROI hesaplama — sektör + paket bazlı"""
-    result = jarvis.roi.calculate(roi_input.sector, roi_input.package, roi_input.current_monthly_customers)
+    result = jarvis.roi.calculate(roi_input.sector, roi_input.package, roi_input.current_monthly_customers, roi_input.market_code)
     return result
 
 @app.get("/api/roi/compare/{sector}", tags=["ROI"])
-async def compare_packages(sector: str, customers: int = Query(default=10)):
+async def compare_packages(sector: str, customers: int = Query(default=10), market_code: str = Query(default="AU")):
     """Tüm paketleri karşılaştır"""
     comparison = {}
     for pkg in ["Starter", "Professional", "Premium"]:
-        comparison[pkg] = jarvis.roi.calculate(sector, pkg, customers)
+        comparison[pkg] = jarvis.roi.calculate(sector, pkg, customers, market_code)
     return {"sector": sector, "comparison": comparison}
 
 
@@ -354,9 +392,9 @@ async def generate_pitch(pitch_input: PitchInput):
     score_data = pitch_input.score_data or {
         "total_score": 70,
         "package_recommendation": "Professional",
-        "price_range": "8.000-15.000 TL/ay"
+        "price_range": "A$6,500-A$12,000/month"
     }
-    scripts = jarvis.pitch.generate(lead_data, pitch_input.sector, score_data)
+    scripts = jarvis.pitch.generate(lead_data, pitch_input.sector, score_data, pitch_input.market_code)
     return {"scripts": scripts}
 
 @app.post("/api/pitch/save", tags=["Pitch"])
@@ -380,7 +418,7 @@ async def generate_contract(contract_input: ContractInput):
     }
     contract = jarvis.generate_contract(
         client_data, contract_input.sector,
-        contract_input.package, contract_input.monthly_fee
+        contract_input.package, contract_input.monthly_fee, contract_input.market_code
     )
     return {"contract": contract}
 
@@ -394,7 +432,7 @@ async def save_contract(contract_input: ContractInput):
     }
     contract_text = jarvis.generate_contract(
         client_data, contract_input.sector,
-        contract_input.package, contract_input.monthly_fee
+        contract_input.package, contract_input.monthly_fee, contract_input.market_code
     )
 
     pkg_details = jarvis.contracts.PACKAGE_DETAILS.get(contract_input.package, {})
@@ -477,8 +515,61 @@ async def board_meeting_history(limit: int = Query(default=10)):
 @app.post("/api/command", tags=["JARVIS AI"])
 async def process_command(cmd: CommandInput):
     """Doğal dil komut işleme"""
-    response = jarvis.process_command(cmd.command)
-    return {"command": cmd.command, "response": response}
+    result = jarvis.handle_command(
+        cmd.command,
+        selected_lead=cmd.selected_lead,
+        candidate_context=cmd.candidate_context,
+        market_code=cmd.market_code,
+    )
+    return {"command": cmd.command, **result}
+
+@app.post("/api/candidates/compare", tags=["Candidates"])
+async def compare_candidates(payload: CandidateCompareInput):
+    """Rank and compare the current candidate pool."""
+    return jarvis.compare_candidates(payload.candidates, payload.market_code)
+
+@app.post("/api/candidates/proposal", tags=["Candidates"])
+async def proposal_recommendation(payload: ProposalRequestInput):
+    """Return a structured proposal recommendation for one candidate."""
+    return jarvis.build_proposal_brief(payload.candidate, payload.market_code)
+
+@app.post("/api/candidates/decision", tags=["Candidates"])
+async def save_candidate_decision(payload: CandidateDecisionInput):
+    """Persist an operator decision for a candidate."""
+    return jarvis.save_candidate_decision(
+        candidate=payload.candidate,
+        decision_status=payload.decision_status,
+        recommended_platform=payload.recommended_platform,
+        recommended_service=payload.recommended_service,
+        proposal_recommended=payload.proposal_recommended,
+        owner=payload.owner,
+        next_action=payload.next_action,
+        follow_up_date=payload.follow_up_date,
+        confidence=payload.confidence,
+        operator_notes=payload.operator_notes,
+        market_code=payload.market_code,
+    )
+
+@app.get("/api/candidates/decisions", tags=["Candidates"])
+async def list_candidate_decisions(limit: int = Query(default=50, ge=1, le=200)):
+    """List saved operator decisions."""
+    return {"decisions": jarvis.get_candidate_decisions(limit)}
+
+@app.get("/api/candidates/decision/{lead_key}", tags=["Candidates"])
+async def get_candidate_decision(lead_key: str):
+    """Get one saved operator decision."""
+    decision = jarvis.get_candidate_decision(lead_key)
+    if not decision:
+        raise HTTPException(status_code=404, detail="Candidate decision not found")
+    return decision
+
+@app.put("/api/candidates/decision/{lead_key}/workflow", tags=["Candidates"])
+async def update_candidate_workflow(lead_key: str, payload: CandidateWorkflowUpdateInput):
+    """Update owner, next action, follow-up date, or status for a saved candidate decision."""
+    decision = jarvis.update_candidate_workflow(lead_key, **payload.dict(exclude_unset=True))
+    if not decision:
+        raise HTTPException(status_code=404, detail="Candidate decision not found")
+    return decision
 
 @app.post("/api/tts", tags=["JARVIS AI"])
 async def generate_speech(tts: TTSRequest):
@@ -506,12 +597,23 @@ async def dashboard_stats():
     hot_leads = jarvis.db.fetch_one("SELECT COUNT(*) as c FROM leads WHERE score >= 75")
     customers = jarvis.db.fetch_one("SELECT COUNT(*) as c FROM customers WHERE status = 'active'")
     contracts = jarvis.db.fetch_one("SELECT COUNT(*) as c FROM contracts")
+    decisions = jarvis.db.fetch_one("SELECT COUNT(*) as c FROM candidate_decisions")
+    proposal_ready = jarvis.db.fetch_one(
+        "SELECT COUNT(*) as c FROM candidate_decisions WHERE proposal_recommended = 1 OR proposal_readiness = 'Ready now'"
+    )
+    invest_now = jarvis.db.fetch_one(
+        "SELECT COUNT(*) as c FROM candidate_decisions WHERE decision_status = 'invest'"
+    )
 
     return {
         "total_leads": total_leads["c"] if total_leads else 0,
         "hot_leads": hot_leads["c"] if hot_leads else 0,
         "active_customers": customers["c"] if customers else 0,
         "total_contracts": contracts["c"] if contracts else 0,
+        "saved_decisions": decisions["c"] if decisions else 0,
+        "proposal_ready": proposal_ready["c"] if proposal_ready else 0,
+        "invest_now": invest_now["c"] if invest_now else 0,
+        "market_profile": jarvis.get_market_profile(),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -524,6 +626,22 @@ async def dashboard_pipeline():
         result = jarvis.db.fetch_one("SELECT COUNT(*) as c FROM leads WHERE status = ?", (s,))
         pipeline[s] = result["c"] if result else 0
     return {"pipeline": pipeline}
+
+@app.get("/api/dashboard/decision-overview", tags=["Dashboard"])
+async def dashboard_decision_overview():
+    """Aggregate saved candidate decisions for the cockpit."""
+    statuses = ["invest", "monitor", "reject"]
+    overview = {}
+    for status in statuses:
+        result = jarvis.db.fetch_one(
+            "SELECT COUNT(*) as c FROM candidate_decisions WHERE decision_status = ?",
+            (status,),
+        )
+        overview[status] = result["c"] if result else 0
+    return {
+        "overview": overview,
+        "recent": jarvis.get_candidate_decisions(8),
+    }
 
 
 # --- Customers ---
@@ -582,9 +700,9 @@ async def update_setting(key: str, value: str = Query(...)):
 # ============================================
 @app.on_event("startup")
 async def startup():
-    print("🤖 JARVIS API Server başlatılıyor...")
-    print(f"📦 {startup_result['tables_created']} tablo hazır")
-    print(f"🔧 {len(startup_result['modules'])} modül aktif")
+    print("JARVIS Operator Cockpit API starting...")
+    print(f"{startup_result['tables_created']} tables ready")
+    print(f"{len(startup_result['modules'])} modules active")
     print("🌐 API: http://localhost:8000")
     print("📚 Docs: http://localhost:8000/docs")
 

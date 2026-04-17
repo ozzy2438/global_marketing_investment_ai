@@ -29,8 +29,9 @@ from psycopg2.extras import RealDictCursor
 import openai
 import os
 import re
+from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import math
 import hashlib
 from dotenv import load_dotenv
@@ -247,6 +248,30 @@ class DatabaseManager:
                     key TEXT UNIQUE NOT NULL,
                     value TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+            "candidate_decisions": """
+                CREATE TABLE IF NOT EXISTS candidate_decisions (
+                    id SERIAL PRIMARY KEY,
+                    lead_key TEXT UNIQUE NOT NULL,
+                    lead_name TEXT NOT NULL,
+                    raw_address TEXT,
+                    sector TEXT,
+                    market_code TEXT DEFAULT 'AU',
+                    decision_status TEXT DEFAULT 'monitor',
+                    recommended_platform TEXT,
+                    recommended_service TEXT,
+                    proposal_recommended INTEGER DEFAULT 0,
+                    proposal_readiness TEXT,
+                    commercial_priority TEXT,
+                    owner TEXT,
+                    next_action TEXT,
+                    follow_up_date DATE,
+                    confidence INTEGER DEFAULT 60,
+                    operator_notes TEXT,
+                    candidate_snapshot TEXT,
+                    analysis_snapshot TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )"""
         }
 
@@ -283,10 +308,188 @@ class DatabaseManager:
 
 
 # ============================================
-# 2. LEAD SCORING ENGINE
+# 2. MARKET PROFILE MANAGER
+# ============================================
+class MarketProfileManager:
+    """Market-aware commercial and presentation defaults."""
+
+    DEFAULT_MARKET = os.environ.get("JARVIS_DEFAULT_MARKET", "AU").upper()
+
+    PROFILES = {
+        "AU": {
+            "market_code": "AU",
+            "market_name": "Australia",
+            "presentation_locale": "en-AU",
+            "currency_code": "AUD",
+            "currency_symbol": "A$",
+            "monthly_suffix": "/month",
+            "package_bands": {
+                "Starter": {"min": 3500, "max": 6500, "avg": 5000},
+                "Professional": {"min": 6500, "max": 12000, "avg": 9000},
+                "Premium": {"min": 12000, "max": 20000, "avg": 16000},
+            },
+            "contract_defaults": {
+                "jurisdiction": "Victoria, Australia",
+                "governing_law": "laws of Victoria, Australia",
+                "invoice_terms": "Net 14 days",
+            },
+            "outreach_defaults": ["Email", "Phone", "LinkedIn"],
+            "sector_assumptions": {
+                "dental": "Focus on booking efficiency, review growth, and retention systems.",
+                "restaurant": "Focus on repeat visits, loyalty, and reputation management.",
+                "law_firm": "Focus on intake quality, case follow-up, and trust signals.",
+                "accounting": "Focus on recurring client management and workflow visibility.",
+            },
+        },
+        "US": {
+            "market_code": "US",
+            "market_name": "United States",
+            "presentation_locale": "en-US",
+            "currency_code": "USD",
+            "currency_symbol": "$",
+            "monthly_suffix": "/month",
+            "package_bands": {
+                "Starter": {"min": 2500, "max": 5000, "avg": 3500},
+                "Professional": {"min": 5000, "max": 9000, "avg": 7000},
+                "Premium": {"min": 9000, "max": 15000, "avg": 12000},
+            },
+            "contract_defaults": {
+                "jurisdiction": "State selected per client contract",
+                "governing_law": "state law specified in the agreement",
+                "invoice_terms": "Net 15 days",
+            },
+            "outreach_defaults": ["Email", "Phone", "LinkedIn"],
+            "sector_assumptions": {
+                "dental": "Emphasise patient acquisition and chair utilisation.",
+                "restaurant": "Emphasise owned customer lists and repeat-visit campaigns.",
+            },
+        },
+        "GB": {
+            "market_code": "GB",
+            "market_name": "United Kingdom",
+            "presentation_locale": "en-GB",
+            "currency_code": "GBP",
+            "currency_symbol": "£",
+            "monthly_suffix": "/month",
+            "package_bands": {
+                "Starter": {"min": 2000, "max": 4000, "avg": 2800},
+                "Professional": {"min": 4000, "max": 7500, "avg": 5600},
+                "Premium": {"min": 7500, "max": 13000, "avg": 9800},
+            },
+            "contract_defaults": {
+                "jurisdiction": "England and Wales",
+                "governing_law": "laws of England and Wales",
+                "invoice_terms": "Net 14 days",
+            },
+            "outreach_defaults": ["Email", "Phone", "LinkedIn"],
+            "sector_assumptions": {
+                "law_firm": "Emphasise intake quality, compliance-safe processes, and pipeline clarity.",
+                "accounting": "Emphasise recurring service retention and client communications.",
+            },
+        },
+        "NZ": {
+            "market_code": "NZ",
+            "market_name": "New Zealand",
+            "presentation_locale": "en-NZ",
+            "currency_code": "NZD",
+            "currency_symbol": "NZ$",
+            "monthly_suffix": "/month",
+            "package_bands": {
+                "Starter": {"min": 3000, "max": 5500, "avg": 4200},
+                "Professional": {"min": 5500, "max": 10000, "avg": 7600},
+                "Premium": {"min": 10000, "max": 17000, "avg": 13500},
+            },
+            "contract_defaults": {
+                "jurisdiction": "New Zealand",
+                "governing_law": "laws of New Zealand",
+                "invoice_terms": "Net 14 days",
+            },
+            "outreach_defaults": ["Email", "Phone", "LinkedIn"],
+            "sector_assumptions": {
+                "restaurant": "Emphasise loyalty, local awareness, and repeat bookings.",
+            },
+        },
+        "TR": {
+            "market_code": "TR",
+            "market_name": "Turkey",
+            "presentation_locale": "tr-TR",
+            "currency_code": "TRY",
+            "currency_symbol": "₺",
+            "monthly_suffix": "/ay",
+            "package_bands": {
+                "Starter": {"min": 3000, "max": 8000, "avg": 5000},
+                "Professional": {"min": 8000, "max": 15000, "avg": 11000},
+                "Premium": {"min": 15000, "max": 25000, "avg": 19000},
+            },
+            "contract_defaults": {
+                "jurisdiction": "Istanbul, Turkey",
+                "governing_law": "laws of the Republic of Turkey",
+                "invoice_terms": "Monthly advance payment",
+            },
+            "outreach_defaults": ["WhatsApp", "Phone", "Email"],
+            "sector_assumptions": {
+                "dental": "Emphasise review growth and appointment reminders.",
+            },
+        },
+    }
+
+    SCORE_THRESHOLDS = (
+        (80, "Premium"),
+        (60, "Professional"),
+        (40, "Starter"),
+        (0, "Nurture"),
+    )
+
+    def get_profile(self, market_code: Optional[str] = None) -> Dict[str, Any]:
+        code = (market_code or self.DEFAULT_MARKET or "AU").upper()
+        return deepcopy(self.PROFILES.get(code, self.PROFILES["AU"]))
+
+    def format_money(self, amount: float, market_code: Optional[str] = None, decimals: int = 0) -> str:
+        profile = self.get_profile(market_code)
+        formatted = f"{amount:,.{decimals}f}" if decimals else f"{amount:,.0f}"
+        return f"{profile['currency_symbol']}{formatted}"
+
+    def get_package_prices(self, market_code: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+        return self.get_profile(market_code)["package_bands"]
+
+    def package_for_score(self, total_score: int, market_code: Optional[str] = None) -> Dict[str, Any]:
+        prices = self.get_package_prices(market_code)
+        profile = self.get_profile(market_code)
+
+        package_name = "Nurture"
+        for threshold, candidate in self.SCORE_THRESHOLDS:
+            if total_score >= threshold:
+                package_name = candidate
+                break
+
+        if package_name == "Nurture":
+            return {
+                "name": "Nurture",
+                "price_range": "Not proposal-ready yet",
+                "market_code": profile["market_code"],
+                "currency_code": profile["currency_code"],
+                "currency_symbol": profile["currency_symbol"],
+            }
+
+        band = prices[package_name]
+        return {
+            "name": package_name,
+            "price_range": (
+                f"{self.format_money(band['min'], profile['market_code'])}-"
+                f"{self.format_money(band['max'], profile['market_code'])}{profile['monthly_suffix']}"
+            ),
+            "monthly_avg": band["avg"],
+            "market_code": profile["market_code"],
+            "currency_code": profile["currency_code"],
+            "currency_symbol": profile["currency_symbol"],
+        }
+
+
+# ============================================
+# 3. LEAD SCORING ENGINE
 # ============================================
 class LeadScoringEngine:
-    """Lead puanlama motoru — 5 kategori, 0-100"""
+    """Lead scoring engine with market-aware packaging."""
 
     SECTOR_AI_NEED = {
         "dental": 90, "law_firm": 75, "accounting": 70,
@@ -295,15 +498,13 @@ class LeadScoringEngine:
         "healthcare": 90, "real_estate": 80, "retail": 70
     }
 
-    PACKAGES = {
-        (80, 101): {"name": "Premium", "price_range": "15.000-25.000 TL/ay"},
-        (60, 80):  {"name": "Professional", "price_range": "8.000-15.000 TL/ay"},
-        (40, 60):  {"name": "Starter", "price_range": "3.000-8.000 TL/ay"},
-        (0, 40):   {"name": "Nurture", "price_range": "Henüz hazır değil"}
-    }
+    def __init__(self, market_profiles: MarketProfileManager, default_market: str = "AU"):
+        self.market_profiles = market_profiles
+        self.default_market = default_market
 
-    def calculate_score(self, lead_data: Dict) -> Dict:
+    def calculate_score(self, lead_data: Dict, market_code: Optional[str] = None) -> Dict:
         scores = {}
+        market = market_code or lead_data.get("market_code") or self.default_market
 
         # 1. Online Presence (0-25)
         op = 0
@@ -350,20 +551,16 @@ class LeadScoringEngine:
         scores["engagement"] = min(es, 15)
 
         total = sum(scores.values())
-
-        # Package recommendation
-        package = {"name": "Nurture", "price_range": "Henüz hazır değil"}
-        for (low, high), pkg in self.PACKAGES.items():
-            if low <= total < high:
-                package = pkg
-                break
+        package = self.market_profiles.package_for_score(total, market)
 
         return {
             "total_score": total,
             "breakdown": scores,
             "package_recommendation": package["name"],
             "price_range": package["price_range"],
-            "priority": "🔴 Yüksek" if total >= 75 else "🟡 Orta" if total >= 50 else "🟢 Düşük"
+            "market_code": package["market_code"],
+            "currency_code": package["currency_code"],
+            "priority": "High" if total >= 75 else "Medium" if total >= 50 else "Low",
         }
 
 
@@ -371,22 +568,22 @@ class LeadScoringEngine:
 # 3. PLAYBOOK TEMPLATES
 # ============================================
 class PlaybookManager:
-    """Sektör bazlı playbook şablonları"""
+    """Sector playbooks written for global English markets."""
 
     PLAYBOOKS = {
         "dental": {
-            "name": "Diş Klinik AI Dönüşüm Playbook",
+            "name": "Dental Growth and Retention Playbook",
             "strategies": [
-                "Online randevu sistemi + AI chatbot",
-                "Google Reviews otomasyonu",
-                "Tedavi hatırlatma WhatsApp botu",
-                "Sosyal medya içerik otomasyonu",
-                "Hasta memnuniyet analizi",
-                "SEO + Google Ads optimizasyonu",
-                "Referans programı otomasyonu",
-                "Tedavi planı görselleştirme",
-                "Bekleme odası dijital deneyim",
-                "Rakip analiz dashboard"
+                "Online booking flow with AI intake assistant",
+                "Review growth and reputation monitoring",
+                "Treatment reminder sequences via email, SMS, or optional messaging apps",
+                "Social proof and before/after content workflows",
+                "Patient satisfaction pulse surveys",
+                "Local SEO plus paid search optimisation",
+                "Referral and recall automation",
+                "Treatment plan explainer content",
+                "Front-desk follow-up dashboard",
+                "Competitor visibility monitoring"
             ],
             "duration_months": 6,
             "target_roi": 300,
@@ -394,18 +591,18 @@ class PlaybookManager:
             "monthly_new_patients_target": 30
         },
         "law_firm": {
-            "name": "Hukuk Bürosu AI Playbook",
+            "name": "Law Firm Intake and Trust Playbook",
             "strategies": [
-                "Müvekkil intake chatbot",
-                "Dava takip otomasyonu",
-                "Belge analiz AI",
-                "Randevu ve hatırlatma sistemi",
-                "Hukuki içerik pazarlama",
-                "Müvekkil portal",
-                "Fatura ve tahsilat otomasyonu",
-                "Rakip fiyat analizi",
-                "Referans takip sistemi",
-                "Performans dashboard"
+                "Lead qualification assistant for enquiries",
+                "Matter follow-up and milestone automation",
+                "Document collection and review workflows",
+                "Consultation scheduling and reminders",
+                "Authority-building content engine",
+                "Client portal and intake visibility",
+                "Billing and collections follow-up",
+                "Competitor positioning review",
+                "Referral source tracking",
+                "Pipeline and case-stage reporting"
             ],
             "duration_months": 6,
             "target_roi": 250,
@@ -413,18 +610,18 @@ class PlaybookManager:
             "monthly_new_clients_target": 10
         },
         "accounting": {
-            "name": "Muhasebe Bürosu AI Playbook",
+            "name": "Accounting Firm Client Operations Playbook",
             "strategies": [
-                "Belge toplama otomasyonu",
-                "Müşteri portal + dosya paylaşım",
-                "Vergi takvimi hatırlatma",
-                "AI destekli veri girişi",
-                "Müşteri onboarding otomasyonu",
-                "Raporlama dashboard",
-                "Fatura takip sistemi",
-                "Mevzuat güncelleme botu",
-                "Müşteri memnuniyet takibi",
-                "Cross-sell analiz motoru"
+                "Document collection and deadline automation",
+                "Client portal plus secure file exchange",
+                "Tax and compliance reminder sequences",
+                "AI-assisted data entry and categorisation",
+                "Client onboarding workflow",
+                "Portfolio reporting dashboard",
+                "Invoice follow-up automation",
+                "Regulation change update assistant",
+                "Client satisfaction monitoring",
+                "Cross-sell and service-gap analysis"
             ],
             "duration_months": 4,
             "target_roi": 200,
@@ -432,18 +629,18 @@ class PlaybookManager:
             "monthly_new_clients_target": 15
         },
         "gym": {
-            "name": "Spor Salonu AI Playbook",
+            "name": "Fitness Retention and Membership Playbook",
             "strategies": [
-                "Üyelik satış chatbot",
-                "Kişisel antrenman planı AI",
-                "Devamsızlık takip + motivasyon",
-                "Sosyal medya içerik üretimi",
-                "Üye referans programı",
-                "Diyet ve beslenme botu",
-                "Sınıf rezervasyon sistemi",
-                "Üye retention analizi",
-                "Kampanya otomasyonu",
-                "Rakip fiyat takibi"
+                "Membership sales assistant",
+                "Personal training and onboarding prompts",
+                "Attendance risk monitoring and win-back campaigns",
+                "Content calendar for classes and transformations",
+                "Member referral automation",
+                "Nutrition and goal-support messaging",
+                "Class booking optimisation",
+                "Retention and churn analysis",
+                "Campaign automation for offers and trials",
+                "Competitor pricing watch"
             ],
             "duration_months": 4,
             "target_roi": 250,
@@ -451,18 +648,18 @@ class PlaybookManager:
             "monthly_new_members_target": 40
         },
         "auto_gallery": {
-            "name": "Oto Galeri AI Playbook",
+            "name": "Dealership Lead Response Playbook",
             "strategies": [
-                "Araç sorgulama WhatsApp botu",
-                "Stok yönetim otomasyonu",
-                "Fiyat karşılaştırma motoru",
-                "Sahibinden/Arabam entegrasyonu",
-                "Müşteri takip CRM",
-                "Araç değerleme AI",
-                "Sosyal medya ilan otomasyonu",
-                "Kredi hesaplama botu",
-                "Satış sonrası takip",
-                "Pazar analiz dashboard"
+                "Vehicle enquiry assistant across web and messaging channels",
+                "Inventory and response automation",
+                "Price and market comparison engine",
+                "Marketplace listing sync",
+                "Sales CRM and follow-up sequences",
+                "Trade-in valuation workflows",
+                "Listing content automation",
+                "Finance qualification prompts",
+                "Post-sale review and referral follow-up",
+                "Local market intelligence dashboard"
             ],
             "duration_months": 5,
             "target_roi": 350,
@@ -470,18 +667,18 @@ class PlaybookManager:
             "monthly_sales_target": 15
         },
         "construction": {
-            "name": "İnşaat Firması AI Playbook",
+            "name": "Construction Proposal and Pipeline Playbook",
             "strategies": [
-                "Proje teklif otomasyonu",
-                "Müşteri adayı takip CRM",
-                "3D görselleştirme entegrasyonu",
-                "Şantiye ilerleme raporlama",
-                "Tedarikçi yönetim sistemi",
-                "Maliyet tahmin AI",
-                "Sosyal medya proje vitrin",
-                "Müşteri iletişim portali",
-                "Sözleşme yönetimi",
-                "Rakip proje takibi"
+                "Proposal generation and qualification workflows",
+                "Lead CRM and estimation pipeline",
+                "Visual scope and concept presentation",
+                "Project progress reporting",
+                "Supplier coordination workflows",
+                "Cost estimation support",
+                "Portfolio and proof content engine",
+                "Client communication portal",
+                "Contract and milestone tracking",
+                "Competitor and tender monitoring"
             ],
             "duration_months": 8,
             "target_roi": 200,
@@ -505,26 +702,34 @@ class PlaybookManager:
 # 4. ROI CALCULATOR
 # ============================================
 class ROICalculator:
-    """Sektör + paket bazlı ROI hesaplama"""
+    """Sector ROI calculator with market-aware package pricing."""
 
     PACKAGE_PRICES = {
-        "Starter": {"min": 3000, "max": 8000, "avg": 5000},
-        "Professional": {"min": 8000, "max": 15000, "avg": 11000},
-        "Premium": {"min": 15000, "max": 25000, "avg": 19000}
+        "Starter": {"min": 3500, "max": 6500, "avg": 5000},
+        "Professional": {"min": 6500, "max": 12000, "avg": 9000},
+        "Premium": {"min": 12000, "max": 20000, "avg": 16000}
     }
 
     SECTOR_MULTIPLIERS = {
-        "dental": {"revenue_per_new": 5000, "conversion_boost": 0.35, "retention_boost": 0.20},
-        "law_firm": {"revenue_per_new": 15000, "conversion_boost": 0.25, "retention_boost": 0.15},
-        "accounting": {"revenue_per_new": 3000, "conversion_boost": 0.30, "retention_boost": 0.25},
-        "gym": {"revenue_per_new": 1500, "conversion_boost": 0.40, "retention_boost": 0.30},
-        "auto_gallery": {"revenue_per_new": 50000, "conversion_boost": 0.20, "retention_boost": 0.10},
-        "construction": {"revenue_per_new": 200000, "conversion_boost": 0.15, "retention_boost": 0.10}
+        "dental": {"revenue_per_new": 1800, "conversion_boost": 0.28, "retention_boost": 0.16},
+        "law_firm": {"revenue_per_new": 4000, "conversion_boost": 0.18, "retention_boost": 0.12},
+        "accounting": {"revenue_per_new": 1200, "conversion_boost": 0.22, "retention_boost": 0.18},
+        "gym": {"revenue_per_new": 900, "conversion_boost": 0.32, "retention_boost": 0.22},
+        "auto_gallery": {"revenue_per_new": 6500, "conversion_boost": 0.12, "retention_boost": 0.08},
+        "construction": {"revenue_per_new": 18000, "conversion_boost": 0.10, "retention_boost": 0.06},
+        "restaurant": {"revenue_per_new": 60, "conversion_boost": 0.35, "retention_boost": 0.26},
+        "real_estate": {"revenue_per_new": 3000, "conversion_boost": 0.14, "retention_boost": 0.10},
     }
 
-    def calculate(self, sector: str, package: str, current_monthly_customers: int = 10) -> Dict:
-        pkg = self.PACKAGE_PRICES.get(package, self.PACKAGE_PRICES["Professional"])
+    def __init__(self, market_profiles: MarketProfileManager, default_market: str = "AU"):
+        self.market_profiles = market_profiles
+        self.default_market = default_market
+
+    def calculate(self, sector: str, package: str, current_monthly_customers: int = 10, market_code: Optional[str] = None) -> Dict:
+        market = market_code or self.default_market
+        pkg = self.market_profiles.get_package_prices(market).get(package, self.market_profiles.get_package_prices(market)["Professional"])
         mult = self.SECTOR_MULTIPLIERS.get(sector, self.SECTOR_MULTIPLIERS["dental"])
+        profile = self.market_profiles.get_profile(market)
 
         monthly_cost = pkg["avg"]
         new_customers = round(current_monthly_customers * mult["conversion_boost"])
@@ -547,7 +752,10 @@ class ROICalculator:
             "roi_percent": roi_percent,
             "payback_days": payback_days,
             "new_customers_per_month": new_customers,
-            "retained_customers": retained
+            "retained_customers": retained,
+            "market_code": profile["market_code"],
+            "currency_code": profile["currency_code"],
+            "currency_symbol": profile["currency_symbol"],
         }
 
 
@@ -555,22 +763,29 @@ class ROICalculator:
 # 5. PITCH SCRIPT GENERATOR
 # ============================================
 class PitchScriptGenerator:
-    """4 tür pitch script üretici"""
+    """Pitch script generator for operator-led outreach."""
 
     PERSUASION_TACTICS = {
-        "scarcity": "Bu ay sadece {limit} yeni müşteri alıyoruz",
-        "social_proof": "{sector} sektöründe {count}+ işletme AI çözümlerimizi kullanıyor",
-        "authority": "Google ve Meta sertifikalı ekibimiz",
-        "reciprocity": "Size ücretsiz bir {gift} hazırladık",
-        "urgency": "Bu teklif {days} gün geçerli",
-        "loss_aversion": "Her ay AI kullanmadan {loss} TL potansiyel gelir kaybediyorsunuz"
+        "scarcity": "We are only onboarding {limit} new clients this month",
+        "social_proof": "{count}+ businesses in {sector} have adopted AI-led growth systems",
+        "authority": "Our team specialises in practical revenue and CRM automation",
+        "reciprocity": "We prepared a free {gift} for your team",
+        "urgency": "This proposal window stays open for {days} days",
+        "loss_aversion": "Each month without follow-up automation can leave {loss} in recoverable revenue on the table",
     }
 
-    def generate(self, lead_data: Dict, sector: str, score_data: Dict) -> Dict:
-        business = lead_data.get("business_name", "İşletme")
-        contact = lead_data.get("contact_person", "Yetkili")
+    def __init__(self, market_profiles: MarketProfileManager, default_market: str = "AU"):
+        self.market_profiles = market_profiles
+        self.default_market = default_market
+
+    def generate(self, lead_data: Dict, sector: str, score_data: Dict, market_code: Optional[str] = None) -> Dict:
+        business = lead_data.get("business_name", "Business")
+        contact = lead_data.get("contact_person", "there")
         package = score_data.get("package_recommendation", "Professional")
-        price = score_data.get("price_range", "8.000-15.000 TL/ay")
+        price = score_data.get(
+            "price_range",
+            self.market_profiles.package_for_score(score_data.get("total_score", 65), market_code or self.default_market)["price_range"],
+        )
 
         scripts = {
             "cold_call": self._cold_call(business, contact, sector, package, price),
@@ -582,88 +797,57 @@ class PitchScriptGenerator:
         return scripts
 
     def _cold_call(self, business, contact, sector, package, price):
-        return f"""📞 SOĞUK ARAMA SCRIPTI — {business}
+        return f"""PHONE SCRIPT — {business}
 
-Merhaba, {contact} Bey/Hanım, ben [İsim], [Ajans Adı]'ndan arıyorum.
+Hi {contact}, this is [Name] from [Agency].
 
-{business} için özel bir araştırma yaptık ve çok ilginç bulgularımız var.
-Sektörünüzdeki rakiplerinizin %60'ı artık AI destekli sistemler kullanıyor.
+We reviewed {business} and found a few clear commercial opportunities in {sector}. If I can show you a 15-minute plan, I can walk through how a {package.lower()} engagement in the {price} range could improve follow-up, conversion, and repeat business.
 
-Size 15 dakikalık bir demo gösterebilirsem, {business} için aylık 
-tahmini {price} yatırımla nasıl 3-5x geri dönüş sağlayabileceğinizi gösterebilirim.
+Would you be open to a short discovery call this week?
 
-Bu hafta 15 dakikanız var mı?
-
-[OBJECTION HANDLING]
-- "İlgilenmiyorum" → Anlıyorum, sadece rakiplerinizin ne yaptığını göstermek istiyorum
-- "Bütçemiz yok" → Ücretsiz analiz raporu sunabiliriz, karar sizin
-- "Düşüneyim" → Tabii, yarın sizi tekrar arayabilir miyim?"""
+Objection handling:
+- "Not interested" -> Understood. I can still send a short benchmark snapshot so you can compare your current funnel with local competitors.
+- "No budget" -> Fair. We can start with a scoped audit and only propose what is commercially justified.
+- "Let me think about it" -> Absolutely. Is there a better day for a quick follow-up?"""
 
     def _email(self, business, contact, sector, package, price):
-        return f"""📧 E-POSTA SCRIPTI — {business}
+        return f"""EMAIL SCRIPT — {business}
 
-Konu: {business} için AI Dönüşüm Raporu (Ücretsiz)
+Subject: Opportunity snapshot for {business}
 
-Merhaba {contact} Bey/Hanım,
+Hi {contact},
 
-{business}'i inceledik ve sektörünüze özel bir AI dönüşüm raporu hazırladık.
+We reviewed {business} and built a short operator brief around its current acquisition, conversion, and retention gaps.
 
-Bulgularımız:
-• Online görünürlüğünüzü %40 artırabilecek 3 kritik alan tespit ettik
-• Rakiplerinizin %60'ı AI chatbot kullanıyor — siz henüz kullanmıyorsunuz
-• Aylık tahmini {price} yatırımla 3-5x ROI potansiyeli
+Key points:
+- there are clear opportunities to improve owned lead capture and follow-up
+- the business could likely support a {package.lower()} engagement in the {price} range
+- the commercial upside comes from faster response, better pipeline visibility, and stronger repeat-customer workflows
 
-Ücretsiz raporunuzu görmek için bu maile yanıt vermeniz yeterli.
+If useful, I can send over the one-page summary and suggested next steps.
 
-{self.PERSUASION_TACTICS['scarcity'].format(limit=5)}
-
-Saygılarımla,
-[İsim] — [Ajans Adı]"""
+Best,
+[Name]
+[Agency]"""
 
     def _whatsapp(self, business, contact, sector, package):
-        return f"""💬 WHATSAPP SCRIPTI — {business}
+        return f"""MESSAGING SCRIPT — {business}
 
-Merhaba {contact} Bey/Hanım 👋
+Hi {contact}, this is [Name] from [Agency].
 
-Ben [İsim], [Ajans Adı]'ndan.
+We reviewed {business} and found a few practical growth opportunities around lead capture, follow-up, and customer retention.
 
-{business} için ücretsiz bir AI analiz raporu hazırladık 📊
-
-Rakiplerinizin online stratejilerini inceledik ve size özel 
-3 kritik öneri belirledik.
-
-Raporu göndermemi ister misiniz? 🚀"""
+If helpful, I can send a short summary and a suggested {package.lower()} rollout. Would you like me to share it?"""
 
     def _demo(self, business, sector, package, price, score_data):
-        return f"""🎯 DEMO SUNUM SCRIPTI — {business}
+        return f"""DEMO OUTLINE — {business}
 
-SLIDE 1: Hoş Geldiniz
-"{business} için AI Dönüşüm Planı"
-
-SLIDE 2: Mevcut Durum Analizi
-• Lead Skoru: {score_data.get('total_score', 0)}/100
-• Öneri: {package} Paket
-• Fiyat: {price}
-
-SLIDE 3: Sektör Analizi
-• Rakip karşılaştırma
-• AI kullanım oranları
-• Kaçırılan fırsatlar
-
-SLIDE 4: Çözüm Önerisi
-• {package} paket detayları
-• Uygulama takvimi
-• Beklenen sonuçlar
-
-SLIDE 5: ROI Projeksiyonu
-• Yatırım: {price}
-• Beklenen getiri: 3-5x
-• Geri ödeme süresi: ~30 gün
-
-SLIDE 6: Sonraki Adımlar
-• Bugün karar → %10 erken kayıt indirimi
-• Bu hafta başlangıç
-• 30 gün para iade garantisi"""
+Slide 1: Why {business} is worth reviewing now
+Slide 2: Current commercial score -> {score_data.get('total_score', 0)}/100
+Slide 3: Main gaps -> acquisition, conversion, retention, operations, visibility
+Slide 4: Recommended offer -> {package} package in the {price} range
+Slide 5: Expected outcome -> cleaner funnel, faster follow-up, stronger repeat business
+Slide 6: Next step -> discovery workshop and scoped proposal"""
 
 
 # ============================================
@@ -732,7 +916,7 @@ class RevenueRoadmapEngine:
 # 7. CONTRACT GENERATOR
 # ============================================
 class ContractGenerator:
-    """Otomatik sözleşme üretici"""
+    """Market-aware service agreement generator."""
 
     PACKAGE_DETAILS = {
         "Starter": {"duration": 3, "setup_fee": 2000, "sla_response": "48 saat"},
@@ -740,66 +924,72 @@ class ContractGenerator:
         "Premium": {"duration": 12, "setup_fee": 0, "sla_response": "4 saat"}
     }
 
-    def generate(self, client_data: Dict, sector: str, package: str, monthly_fee: float) -> str:
+    def __init__(self, market_profiles: MarketProfileManager, default_market: str = "AU"):
+        self.market_profiles = market_profiles
+        self.default_market = default_market
+
+    def generate(self, client_data: Dict, sector: str, package: str, monthly_fee: float, market_code: Optional[str] = None) -> str:
         pkg = self.PACKAGE_DETAILS.get(package, self.PACKAGE_DETAILS["Professional"])
         duration = pkg["duration"]
         total = monthly_fee * duration
-        today = datetime.now().strftime("%d.%m.%Y")
-        end_date = (datetime.now() + timedelta(days=duration*30)).strftime("%d.%m.%Y")
+        profile = self.market_profiles.get_profile(market_code or self.default_market)
+        today = datetime.now().strftime("%d %b %Y")
+        end_date = (datetime.now() + timedelta(days=duration*30)).strftime("%d %b %Y")
+        money = self.market_profiles.format_money
+        agreement_id = hashlib.md5(client_data.get("business_name", "").encode()).hexdigest()[:6].upper()
 
         contract = f"""
 {'='*60}
-         HİZMET SÖZLEŞMESİ — {package.upper()} PAKET
+         SERVICES AGREEMENT — {package.upper()} PACKAGE
 {'='*60}
 
-Sözleşme No: JRV-{datetime.now().strftime('%Y%m%d')}-{hashlib.md5(client_data.get('business_name','').encode()).hexdigest()[:6].upper()}
-Tarih: {today}
+Agreement No: JRV-{datetime.now().strftime('%Y%m%d')}-{agreement_id}
+Date: {today}
 
-MADDE 1 — TARAFLAR
-Hizmet Veren: [Ajans Adı] ("Ajans")
-Hizmet Alan: {client_data.get('business_name', '')} ("Müşteri")
-Yetkili: {client_data.get('contact_person', '')}
-Adres: {client_data.get('address', '')}
+1. Parties
+Service Provider: [Agency Name]
+Client: {client_data.get('business_name', '')}
+Primary Contact: {client_data.get('contact_person', '')}
+Address: {client_data.get('address', '')}
 
-MADDE 2 — HİZMET KAPSAMI
-Sektör: {sector}
-Paket: {package}
-AI çözümleri, otomasyon sistemleri ve dijital dönüşüm hizmetleri
+2. Scope
+Sector: {sector}
+Package: {package}
+Scope covers commercial systems, CRM/workflow design, automation, and reporting.
 
-MADDE 3 — SÜRE
-Başlangıç: {today}
-Bitiş: {end_date}
-Süre: {duration} ay
+3. Term
+Start Date: {today}
+End Date: {end_date}
+Duration: {duration} months
 
-MADDE 4 — ÜCRET
-Aylık Hizmet Bedeli: {monthly_fee:,.0f} TL + KDV
-Kurulum Ücreti: {pkg['setup_fee']:,.0f} TL + KDV
-Toplam Sözleşme Değeri: {total:,.0f} TL + KDV
-Ödeme: Her ayın 1-5'i arası
+4. Fees
+Monthly Fee: {money(monthly_fee, profile['market_code'])} + applicable taxes
+Setup Fee: {money(pkg['setup_fee'], profile['market_code'])} + applicable taxes
+Total Contract Value: {money(total, profile['market_code'])} + applicable taxes
+Payment Terms: {profile['contract_defaults']['invoice_terms']}
 
-MADDE 5 — SLA (Hizmet Seviyesi)
-Yanıt Süresi: {pkg['sla_response']}
-Uptime Garantisi: %99.5
-Aylık Raporlama: Evet
+5. Service Levels
+Response Time: {pkg['sla_response']}
+Reporting: Monthly commercial and workflow review
+Availability Target: 99.5%
 
-MADDE 6 — GİZLİLİK
-Taraflar birbirlerinin ticari sırlarını koruyacaktır.
+6. Confidentiality
+Both parties will protect confidential business information disclosed during delivery.
 
-MADDE 7 — FİKRİ MÜLKİYET
-Geliştirilen AI modelleri ve sistemler ajansa aittir.
-Müşteri kullanım lisansına sahiptir.
+7. Intellectual Property
+The client receives a usage licence for delivered systems, templates, and automations as defined in the final scope.
 
-MADDE 8 — FESİH
-30 gün önceden yazılı bildirim ile feshedilebilir.
-Erken fesih cezası: Kalan sürenin %50'si
+8. Termination
+Either party may terminate with 30 days' written notice unless otherwise agreed in writing.
 
-MADDE 9 — UYUŞMAZLIK
-İstanbul Mahkemeleri ve İcra Daireleri yetkilidir.
+9. Governing Law
+This agreement is governed by the {profile['contract_defaults']['governing_law']}.
+Jurisdiction: {profile['contract_defaults']['jurisdiction']}
 
-MADDE 10 — İMZALAR
+10. Signatures
 
-Ajans: _______________     Müşteri: _______________
-Tarih: {today}            Tarih: {today}
+Agency: _______________     Client: _______________
+Date: {today}              Date: {today}
 {'='*60}"""
         return contract
 
@@ -952,17 +1142,29 @@ class JARVIS:
         "vancouver": "CA",
     }
 
+    STRATEGY_KEYWORDS = {
+        "invest": ("invest", "investment", "priority", "best option", "which one", "worth backing", "worth investing"),
+        "shortcomings": ("shortcoming", "shortcomings", "weakness", "weaknesses", "gap", "gaps", "issue", "issues"),
+        "crm": ("crm", "platform", "customer platform", "customer system", "sales system", "pipeline"),
+        "proposal": ("proposal", "submit", "pitch", "offer", "outreach", "send"),
+    }
+
     def __init__(self):
         self.db = DatabaseManager()
-        self.scoring = LeadScoringEngine()
+        self.market_profiles = MarketProfileManager()
+        self.default_market = self.market_profiles.DEFAULT_MARKET
+        self.scoring = LeadScoringEngine(self.market_profiles, self.default_market)
         self.playbooks = PlaybookManager()
-        self.roi = ROICalculator()
-        self.pitch = PitchScriptGenerator()
+        self.roi = ROICalculator(self.market_profiles, self.default_market)
+        self.pitch = PitchScriptGenerator(self.market_profiles, self.default_market)
         self.roadmap = RevenueRoadmapEngine()
-        self.contracts = ContractGenerator()
+        self.contracts = ContractGenerator(self.market_profiles, self.default_market)
         self.board = BoardMeetingAI()
-        self.serpapi = SerpApiGlobalIntegration()
-        self.version = "1.0.0"
+        try:
+            self.serpapi = SerpApiGlobalIntegration()
+        except Exception:
+            self.serpapi = None
+        self.version = "2.0.0"
         self.name = "JARVIS"
 
     def start(self):
@@ -973,7 +1175,7 @@ class JARVIS:
             "version": self.version,
             "tables_created": tables,
             "modules": [
-                "DatabaseManager", "LeadScoringEngine", "PlaybookManager",
+                "DatabaseManager", "MarketProfileManager", "LeadScoringEngine", "PlaybookManager",
                 "ROICalculator", "PitchScriptGenerator", "RevenueRoadmapEngine",
                 "ContractGenerator", "BoardMeetingAI", "SerpApiIntegration"
             ]
@@ -984,14 +1186,15 @@ class JARVIS:
         search_input = self.apify.build_search_input(city, district, sector)
         return {"status": "scan_ready", "input": search_input}
 
-    def analyze_lead(self, lead_data: Dict):
-        """Lead analizi — skor + paket + ROI + pitch"""
-        score = self.scoring.calculate_score(lead_data)
+    def analyze_lead(self, lead_data: Dict, market_code: Optional[str] = None):
+        """Lead analysis with score, ROI, pitch, and playbook."""
+        resolved_market = market_code or lead_data.get("market_code") or self.default_market
+        score = self.scoring.calculate_score(lead_data, resolved_market)
         sector = lead_data.get("sector", "dental")
         package = score["package_recommendation"]
 
-        roi = self.roi.calculate(sector, package, lead_data.get("monthly_customers", 10))
-        scripts = self.pitch.generate(lead_data, sector, score)
+        roi = self.roi.calculate(sector, package, lead_data.get("monthly_customers", 10), resolved_market)
+        scripts = self.pitch.generate(lead_data, sector, score, resolved_market)
         playbook = self.playbooks.get_playbook(sector)
 
         return {
@@ -999,12 +1202,13 @@ class JARVIS:
             "roi": roi,
             "pitch_scripts": scripts,
             "playbook": playbook.get("name", ""),
-            "strategies": playbook.get("strategies", [])[:5]
+            "strategies": playbook.get("strategies", [])[:5],
+            "market_profile": self.market_profiles.get_profile(resolved_market),
         }
 
-    def generate_contract(self, client_data: Dict, sector: str, package: str, monthly_fee: float):
-        """Sözleşme oluştur"""
-        return self.contracts.generate(client_data, sector, package, monthly_fee)
+    def generate_contract(self, client_data: Dict, sector: str, package: str, monthly_fee: float, market_code: Optional[str] = None):
+        """Generate a market-aware contract."""
+        return self.contracts.generate(client_data, sector, package, monthly_fee, market_code or self.default_market)
 
     def weekly_board_meeting(self, agency_data: Dict):
         """Haftalık yönetim kurulu raporu"""
@@ -1013,6 +1217,808 @@ class JARVIS:
     def revenue_plan(self, target: float, current: float = 0):
         """Gelir yol haritası"""
         return self.roadmap.generate(target, current)
+
+    def get_market_profile(self, market_code: Optional[str] = None) -> Dict[str, Any]:
+        return self.market_profiles.get_profile(market_code or self.default_market)
+
+    def _resolve_market_code(
+        self,
+        explicit_market_code: Optional[str] = None,
+        selected_lead: Optional[Dict] = None,
+        candidate_context: Optional[List[Dict]] = None,
+        command: Optional[str] = None,
+    ) -> str:
+        if explicit_market_code:
+            return explicit_market_code.upper()
+        if selected_lead and selected_lead.get("market_code"):
+            return str(selected_lead["market_code"]).upper()
+        if candidate_context:
+            first = candidate_context[0]
+            if first.get("market_code"):
+                return str(first["market_code"]).upper()
+        if command:
+            return self._infer_country_code("", command)
+        return self.default_market
+
+    def _json_load_if_needed(self, value: Any, fallback: Any) -> Any:
+        if value in (None, ""):
+            return fallback
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            return json.loads(value)
+        except Exception:
+            return fallback
+
+    def _hydrate_candidate_decision_row(self, row: Optional[Dict]) -> Optional[Dict[str, Any]]:
+        if not row:
+            return None
+        record = dict(row)
+        record["proposal_recommended"] = bool(record.get("proposal_recommended"))
+        record["candidate_snapshot"] = self._json_load_if_needed(record.get("candidate_snapshot"), {})
+        record["analysis_snapshot"] = self._json_load_if_needed(record.get("analysis_snapshot"), {})
+        return record
+
+    def compare_candidates(self, candidates: List[Dict], market_code: Optional[str] = None) -> Dict[str, Any]:
+        ranked = self._rank_candidates(candidates, market_code)
+        if not ranked:
+            return {
+                "market_profile": self.get_market_profile(market_code),
+                "ranked_candidates": [],
+                "summary": "No candidates are loaded yet.",
+                "top_recommendation": None,
+            }
+
+        leader = ranked[0]
+        summary = (
+            f"{leader['name']} is the strongest current target because {leader['fit_summary'].lower()} "
+            f"and its proposal readiness is {leader['proposal_readiness'].lower()}."
+        )
+        return {
+            "market_profile": self.get_market_profile(market_code),
+            "ranked_candidates": ranked,
+            "summary": summary,
+            "top_recommendation": {
+                "lead_key": leader["lead_key"],
+                "name": leader["name"],
+                "investment_score": leader["investment_score"],
+                "proposal_readiness": leader["proposal_readiness"],
+                "recommended_service": leader["recommended_service_type"],
+            },
+        }
+
+    def build_proposal_brief(self, candidate: Dict, market_code: Optional[str] = None) -> Dict[str, Any]:
+        lead = self._enrich_candidate(candidate, market_code)
+        return {
+            "lead_key": lead["lead_key"],
+            "target_business": lead["name"],
+            "market_profile": self.get_market_profile(lead["market_code"]),
+            "recommended_platform_type": lead["platform_type"],
+            "recommended_service_type": lead["recommended_service_type"],
+            "recommended_delivery_shape": lead["recommended_delivery_shape"],
+            "proposal_readiness": lead["proposal_readiness"],
+            "proposal_recommendation": lead["proposal_recommendation"],
+            "fit_summary": lead["fit_summary"],
+            "risk_summary": lead["risk_summary"],
+            "commercial_priority": lead["commercial_priority"],
+            "problem_statement": lead["problem_statement"],
+            "expected_business_outcome": lead["expected_business_outcome"],
+            "proposed_scope": lead["proposed_scope"],
+            "decision_trace": lead["decision_trace"],
+        }
+
+    def get_candidate_decision(self, lead_key: str) -> Optional[Dict[str, Any]]:
+        row = self.db.fetch_one(
+            "SELECT * FROM candidate_decisions WHERE lead_key = ?",
+            (lead_key,),
+        )
+        return self._hydrate_candidate_decision_row(row)
+
+    def get_candidate_decisions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        rows = self.db.fetch_all(
+            "SELECT * FROM candidate_decisions ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
+        )
+        return [self._hydrate_candidate_decision_row(row) for row in rows]
+
+    def save_candidate_decision(
+        self,
+        candidate: Dict[str, Any],
+        decision_status: str = "monitor",
+        recommended_platform: Optional[str] = None,
+        recommended_service: Optional[str] = None,
+        proposal_recommended: Optional[bool] = None,
+        owner: str = "",
+        next_action: str = "",
+        follow_up_date: Optional[str] = None,
+        confidence: int = 60,
+        operator_notes: str = "",
+        market_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        lead = self._enrich_candidate(candidate, market_code)
+        existing = self.get_candidate_decision(lead["lead_key"]) or {}
+
+        payload = {
+            "lead_key": lead["lead_key"],
+            "lead_name": lead["name"],
+            "raw_address": lead.get("raw_address", ""),
+            "sector": lead.get("sector", ""),
+            "market_code": lead["market_code"],
+            "decision_status": decision_status or existing.get("decision_status") or "monitor",
+            "recommended_platform": recommended_platform or existing.get("recommended_platform") or lead["platform_type"],
+            "recommended_service": recommended_service or existing.get("recommended_service") or lead["recommended_service_type"],
+            "proposal_recommended": int(
+                proposal_recommended
+                if proposal_recommended is not None
+                else existing.get("proposal_recommended", lead["proposal_readiness"] == "Ready now")
+            ),
+            "proposal_readiness": lead["proposal_readiness"],
+            "commercial_priority": lead["commercial_priority"],
+            "owner": owner if owner != "" else existing.get("owner", ""),
+            "next_action": next_action if next_action != "" else existing.get("next_action", ""),
+            "follow_up_date": follow_up_date if follow_up_date is not None else existing.get("follow_up_date"),
+            "confidence": max(0, min(100, int(confidence if confidence is not None else existing.get("confidence", 60)))),
+            "operator_notes": operator_notes if operator_notes != "" else existing.get("operator_notes", ""),
+            "candidate_snapshot": json.dumps(candidate, ensure_ascii=False),
+            "analysis_snapshot": json.dumps(lead, ensure_ascii=False),
+        }
+
+        self.db.execute(
+            """
+            INSERT INTO candidate_decisions (
+                lead_key, lead_name, raw_address, sector, market_code, decision_status,
+                recommended_platform, recommended_service, proposal_recommended,
+                proposal_readiness, commercial_priority, owner, next_action,
+                follow_up_date, confidence, operator_notes, candidate_snapshot,
+                analysis_snapshot, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (lead_key) DO UPDATE SET
+                lead_name = EXCLUDED.lead_name,
+                raw_address = EXCLUDED.raw_address,
+                sector = EXCLUDED.sector,
+                market_code = EXCLUDED.market_code,
+                decision_status = EXCLUDED.decision_status,
+                recommended_platform = EXCLUDED.recommended_platform,
+                recommended_service = EXCLUDED.recommended_service,
+                proposal_recommended = EXCLUDED.proposal_recommended,
+                proposal_readiness = EXCLUDED.proposal_readiness,
+                commercial_priority = EXCLUDED.commercial_priority,
+                owner = EXCLUDED.owner,
+                next_action = EXCLUDED.next_action,
+                follow_up_date = EXCLUDED.follow_up_date,
+                confidence = EXCLUDED.confidence,
+                operator_notes = EXCLUDED.operator_notes,
+                candidate_snapshot = EXCLUDED.candidate_snapshot,
+                analysis_snapshot = EXCLUDED.analysis_snapshot,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                payload["lead_key"],
+                payload["lead_name"],
+                payload["raw_address"],
+                payload["sector"],
+                payload["market_code"],
+                payload["decision_status"],
+                payload["recommended_platform"],
+                payload["recommended_service"],
+                payload["proposal_recommended"],
+                payload["proposal_readiness"],
+                payload["commercial_priority"],
+                payload["owner"],
+                payload["next_action"],
+                payload["follow_up_date"],
+                payload["confidence"],
+                payload["operator_notes"],
+                payload["candidate_snapshot"],
+                payload["analysis_snapshot"],
+            ),
+        )
+        return self.get_candidate_decision(payload["lead_key"]) or {}
+
+    def update_candidate_workflow(self, lead_key: str, **updates: Any) -> Optional[Dict[str, Any]]:
+        existing = self.get_candidate_decision(lead_key)
+        if not existing:
+            return None
+        candidate = existing.get("candidate_snapshot") or existing.get("analysis_snapshot") or {"lead_key": lead_key}
+        return self.save_candidate_decision(
+            candidate=candidate,
+            decision_status=updates.get("decision_status", existing.get("decision_status", "monitor")),
+            recommended_platform=updates.get("recommended_platform", existing.get("recommended_platform")),
+            recommended_service=updates.get("recommended_service", existing.get("recommended_service")),
+            proposal_recommended=updates.get("proposal_recommended", existing.get("proposal_recommended")),
+            owner=updates.get("owner", existing.get("owner", "")),
+            next_action=updates.get("next_action", existing.get("next_action", "")),
+            follow_up_date=updates.get("follow_up_date", existing.get("follow_up_date")),
+            confidence=updates.get("confidence", existing.get("confidence", 60)),
+            operator_notes=updates.get("operator_notes", existing.get("operator_notes", "")),
+            market_code=updates.get("market_code", existing.get("market_code", self.default_market)),
+        )
+
+    def _lead_key(self, lead: Dict) -> str:
+        candidate_name = lead.get("name") or lead.get("business_name") or ""
+        raw = "|".join(
+            str(value)
+            for value in (
+                candidate_name,
+                lead.get("raw_address", ""),
+                lead.get("latitude", ""),
+                lead.get("longitude", ""),
+                lead.get("phone", ""),
+                lead.get("website", ""),
+            )
+        )
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+
+    def _detect_strategy_intent(self, command: str) -> Optional[str]:
+        lower = command.lower()
+        for intent, keywords in self.STRATEGY_KEYWORDS.items():
+            if any(keyword in lower for keyword in keywords):
+                return intent
+        return None
+
+    def _assess_gap_scores(self, lead: Dict[str, Any]) -> Dict[str, int]:
+        rating = float(lead.get("rating", 0) or 0)
+        review_count = int(lead.get("review_count", 0) or 0)
+        has_website = bool(lead.get("website") or lead.get("has_website"))
+        has_phone = bool(lead.get("phone"))
+        sector = (lead.get("sector") or "").lower()
+
+        acquisition_gap = 55
+        retention_gap = 45
+        conversion_gap = 50
+        operations_gap = 40
+        visibility_gap = 50
+
+        if not has_website:
+            acquisition_gap += 25
+            conversion_gap += 18
+            operations_gap += 10
+        else:
+            acquisition_gap -= 12
+            conversion_gap -= 8
+
+        if not has_phone:
+            conversion_gap += 10
+            operations_gap += 8
+        else:
+            conversion_gap -= 4
+
+        if review_count < 25:
+            visibility_gap += 22
+        elif review_count < 100:
+            visibility_gap += 10
+        else:
+            visibility_gap -= 10
+            retention_gap += 8
+
+        if rating and rating < 4.2:
+            visibility_gap += 18
+        elif rating >= 4.7:
+            visibility_gap -= 12
+            retention_gap += 6
+
+        if any(token in sector for token in ("restaurant", "cafe", "coffee", "gym", "dental")):
+            retention_gap += 10
+        if sector in ("law_firm", "accounting", "construction", "real_estate"):
+            operations_gap += 12
+            conversion_gap += 6
+
+        return {
+            "acquisition_gap": max(0, min(100, acquisition_gap)),
+            "retention_gap": max(0, min(100, retention_gap)),
+            "conversion_gap": max(0, min(100, conversion_gap)),
+            "operations_gap": max(0, min(100, operations_gap)),
+            "visibility_gap": max(0, min(100, visibility_gap)),
+        }
+
+    def _infer_platform_strategy(self, lead: Dict[str, Any], gap_scores: Dict[str, int]) -> Dict[str, str]:
+        sector = (lead.get("sector") or "").lower()
+        has_website = bool(lead.get("website") or lead.get("has_website"))
+        highest_gap = max(gap_scores, key=gap_scores.get)
+
+        if not has_website:
+            return {
+                "platform_type": "Owned funnel and customer capture platform",
+                "why": "The business still depends too heavily on third-party discovery, so the first move is an owned website and lead capture layer.",
+            }
+
+        if highest_gap == "retention_gap" and any(token in sector for token in ("restaurant", "cafe", "coffee", "gym", "dental")):
+            return {
+                "platform_type": "Customer retention and nurture platform",
+                "why": "Repeat purchases, recalls, and loyalty mechanics are likely the fastest commercial win for this sector.",
+            }
+
+        if highest_gap == "operations_gap":
+            return {
+                "platform_type": "Delivery workflow and CRM operations layer",
+                "why": "The business most likely needs cleaner handoffs, follow-up visibility, and day-to-day workflow discipline.",
+            }
+
+        return {
+            "platform_type": "Sales CRM and follow-up automation",
+            "why": "The next win is tighter lead capture, response handling, and pipeline visibility rather than a heavy bespoke platform.",
+        }
+
+    def _recommend_service(self, lead: Dict[str, Any], gap_scores: Dict[str, int]) -> Dict[str, str]:
+        highest_gap = max(gap_scores, key=gap_scores.get)
+        if not (lead.get("website") or lead.get("has_website")):
+            return {
+                "service_type": "Owned funnel launch",
+                "delivery_shape": "Landing pages, forms, analytics, and CRM routing",
+            }
+        if highest_gap == "visibility_gap":
+            return {
+                "service_type": "Visibility and reputation engine",
+                "delivery_shape": "Review growth, local SEO, and social proof workflow",
+            }
+        if highest_gap == "retention_gap":
+            return {
+                "service_type": "Retention and reactivation system",
+                "delivery_shape": "Lifecycle campaigns, offer automation, and repeat-visit workflows",
+            }
+        if highest_gap == "operations_gap":
+            return {
+                "service_type": "Pipeline and workflow operating system",
+                "delivery_shape": "CRM, task orchestration, reporting, and team follow-up rules",
+            }
+        return {
+            "service_type": "CRM and follow-up optimisation",
+            "delivery_shape": "Lead routing, sales stages, reminders, and visibility dashboards",
+        }
+
+    def _enrich_candidate(self, lead: Dict, market_code: Optional[str] = None) -> Dict[str, Any]:
+        enriched = dict(lead)
+        enriched["name"] = lead.get("name") or lead.get("business_name") or "Unknown business"
+        enriched["lead_key"] = self._lead_key(lead)
+        enriched["market_code"] = self._resolve_market_code(market_code, lead)
+        profile = self.get_market_profile(enriched["market_code"])
+
+        rating = float(lead.get("rating", 0) or 0)
+        review_count = int(lead.get("review_count", 0) or 0)
+        has_website = bool(lead.get("website") or lead.get("has_website"))
+        has_phone = bool(lead.get("phone"))
+        base_score = int(lead.get("score", 0) or 0)
+        gap_scores = self._assess_gap_scores(enriched)
+        service = self._recommend_service(enriched, gap_scores)
+
+        strengths: List[str] = []
+        shortcomings: List[str] = []
+
+        if rating >= 4.7:
+            strengths.append(f"Strong reputation at {rating:.1f} stars.")
+        elif rating >= 4.4:
+            strengths.append(f"Good local reputation at {rating:.1f} stars.")
+        elif rating > 0:
+            shortcomings.append(f"Reputation can be improved from {rating:.1f} stars.")
+
+        if review_count >= 250:
+            strengths.append(f"High review volume with {review_count} reviews.")
+        elif review_count >= 75:
+            strengths.append(f"Solid social proof with {review_count} reviews.")
+        else:
+            shortcomings.append("Limited review volume weakens social proof.")
+
+        if has_website:
+            strengths.append("Has a website, so CRM and automation can attach to an owned funnel.")
+        else:
+            shortcomings.append("No owned website detected, so lead capture is dependent on third-party platforms.")
+
+        if has_phone:
+            strengths.append("Phone contact is visible for direct outreach.")
+        else:
+            shortcomings.append("No phone number surfaced in search results.")
+
+        investment_score = base_score or 55
+        if not has_website:
+            investment_score += 18
+        if rating >= 4.7:
+            investment_score += 10
+        elif rating >= 4.4:
+            investment_score += 6
+        elif 0 < rating < 4.2:
+            investment_score -= 8
+
+        if review_count >= 250:
+            investment_score += 10
+        elif review_count >= 100:
+            investment_score += 6
+        elif review_count < 25:
+            investment_score -= 5
+
+        if has_phone:
+            investment_score += 4
+
+        investment_score += round(gap_scores["retention_gap"] * 0.06)
+        investment_score += round(gap_scores["visibility_gap"] * 0.04)
+        investment_score = max(0, min(100, investment_score))
+
+        if investment_score >= 78:
+            invest_recommendation = "High-priority investment candidate"
+            proposal_readiness = "Ready now"
+            proposal_recommendation = "Submit a discovery proposal now."
+            commercial_priority = "High"
+        elif investment_score >= 62:
+            invest_recommendation = "Promising candidate worth qualifying"
+            proposal_readiness = "Needs qualification"
+            proposal_recommendation = "Submit a proposal after a short qualification call."
+            commercial_priority = "Medium"
+        else:
+            invest_recommendation = "Lower-priority candidate for now"
+            proposal_readiness = "Monitor"
+            proposal_recommendation = "Do not rush a proposal; monitor or qualify later."
+            commercial_priority = "Low"
+
+        platform = self._infer_platform_strategy(enriched, gap_scores)
+        decision_trace = [
+            f"Investment score {investment_score}/100 based on reviews, contactability, and digital ownership.",
+            f"Top gap area: {max(gap_scores, key=gap_scores.get).replace('_', ' ')}.",
+            f"Recommended service: {service['service_type']}.",
+        ]
+        fit_summary = (
+            f"{enriched['name']} shows enough traction to justify {service['service_type'].lower()} because "
+            f"{strengths[0].lower() if strengths else 'there is a clear commercial gap to close'}"
+        )
+        risk_summary = shortcomings[0] if shortcomings else "No major delivery risk is visible from public data alone."
+        problem_statement = (
+            f"{enriched['name']} appears to have the strongest opportunity around "
+            f"{max(gap_scores, key=gap_scores.get).replace('_', ' ')} and follow-up discipline."
+        )
+        expected_business_outcome = (
+            "Improve lead capture quality, reduce response leakage, and create a clearer path to repeat revenue."
+        )
+        proposed_scope = [
+            platform["platform_type"],
+            service["delivery_shape"],
+            "Operator reporting, decision tracking, and proposal handoff brief",
+        ]
+
+        enriched.update(
+            {
+                "investment_score": investment_score,
+                "invest_recommendation": invest_recommendation,
+                "investment_priority": commercial_priority,
+                "proposal_recommendation": proposal_recommendation,
+                "proposal_readiness": proposal_readiness,
+                "shortcomings": shortcomings,
+                "strengths": strengths,
+                "platform_type": platform["platform_type"],
+                "platform_reason": platform["why"],
+                "recommended_service_type": service["service_type"],
+                "recommended_delivery_shape": service["delivery_shape"],
+                "gap_scores": gap_scores,
+                "decision_trace": decision_trace,
+                "fit_summary": fit_summary,
+                "risk_summary": risk_summary,
+                "commercial_priority": commercial_priority,
+                "opportunity_summary": strengths[0] if strengths else "Moderate opportunity.",
+                "problem_statement": problem_statement,
+                "expected_business_outcome": expected_business_outcome,
+                "proposed_scope": proposed_scope,
+                "market_profile": {
+                    "market_code": profile["market_code"],
+                    "market_name": profile["market_name"],
+                    "currency_code": profile["currency_code"],
+                    "currency_symbol": profile["currency_symbol"],
+                    "presentation_locale": profile["presentation_locale"],
+                },
+            }
+        )
+        return enriched
+
+    def _rank_candidates(self, leads: List[Dict], market_code: Optional[str] = None) -> List[Dict]:
+        enriched = [self._enrich_candidate(lead, market_code) for lead in leads]
+        return sorted(
+            enriched,
+            key=lambda lead: (
+                lead.get("investment_score", 0),
+                lead.get("rating", 0),
+                lead.get("review_count", 0),
+            ),
+            reverse=True,
+        )
+
+    def _format_business_search_response(self, request: Dict, leads: List[Dict]) -> str:
+        if not leads:
+            return (
+                f"I couldn't find any {request['business_type']} results in {request['location']} right now. "
+                "Try a broader location or a different business type."
+            )
+
+        filtered = leads
+        threshold = request.get("rating_threshold")
+        if threshold is not None:
+            matching = [lead for lead in leads if lead.get("rating", 0) >= threshold]
+            if matching:
+                filtered = matching
+
+        ranked = self._rank_candidates(filtered, request.get("country_code"))
+        selected = ranked[:request["count"]]
+
+        lines = [
+            f"I found {len(selected)} {request['business_type']} results in {request['location']}."
+        ]
+        if threshold is not None:
+            lines[0] += f" Prioritised ratings of {threshold:.1f}+ where available."
+        lines.append("The map can now plot these candidates. Hover markers for details and click one to focus the chat on it.")
+
+        for index, lead in enumerate(selected, start=1):
+            rating = lead.get("rating", 0)
+            rating_text = f"{rating:.1f}★" if rating else "No rating"
+            reviews = lead.get("review_count", 0)
+            review_text = f"{reviews} reviews" if reviews else "review count unavailable"
+            line = (
+                f"{index}. {lead.get('name', 'Unknown')} — {rating_text} ({review_text})"
+                f" | Investment score {lead.get('investment_score', 0)}/100"
+            )
+
+            details = []
+            if lead.get("raw_address"):
+                details.append(lead["raw_address"])
+            if lead.get("phone"):
+                details.append(lead["phone"])
+            if lead.get("website"):
+                details.append(lead["website"])
+
+            if details:
+                line += f"\n   {' | '.join(details)}"
+
+            lines.append(line)
+
+        return "\n".join(lines)
+
+    def _handle_business_search(self, request: Dict) -> Dict[str, Any]:
+        if not self.serpapi:
+            raise RuntimeError("SerpApi is not configured. Add SERPAPI_API_KEY to enable live business search.")
+        raw_results = self.serpapi.search_maps(
+            request["business_type"],
+            request["location"],
+            request["country_code"],
+            request["language"],
+            request["max_results"],
+        )
+        leads = self.serpapi.process_results(
+            raw_results,
+            request["business_type"],
+            request["country_code"],
+        )
+
+        filtered = leads
+        threshold = request.get("rating_threshold")
+        if threshold is not None:
+            matching = [lead for lead in leads if lead.get("rating", 0) >= threshold]
+            if matching:
+                filtered = matching
+
+        ranked = self._rank_candidates(filtered, request["country_code"])
+        selected = ranked[:request["count"]]
+        comparison = self.compare_candidates(selected, request["country_code"])
+
+        return {
+            "response": self._format_business_search_response(request, selected),
+            "action": "plot_map_results",
+            "leads": selected,
+            "candidate_count": len(selected),
+            "selected_lead": selected[0] if selected else None,
+            "comparison": comparison,
+            "market_profile": self.get_market_profile(request["country_code"]),
+            "suggested_questions": [
+                "Which one should we invest in first?",
+                "What are the shortcomings of each?",
+                "Should we build a CRM or customer platform here?",
+                "Which one deserves a proposal now?",
+            ],
+        }
+
+    def _format_candidate_snapshot(self, lead: Dict) -> str:
+        shortcomings = lead.get("shortcomings") or ["No major gaps flagged yet."]
+        return (
+            f"{lead.get('name', 'This business')} has an investment score of {lead.get('investment_score', 0)}/100. "
+            f"Recommendation: {lead.get('invest_recommendation', 'Review manually')}. "
+            f"Main shortcoming: {shortcomings[0]}. "
+            f"Recommended platform: {lead.get('platform_type', 'TBD')}."
+        )
+
+    def _analyze_selected_candidate(self, command: str, selected_lead: Dict) -> str:
+        lead = self._enrich_candidate(selected_lead)
+        intent = self._detect_strategy_intent(command)
+
+        if intent == "invest":
+            return (
+                f"{lead['name']} is a {lead['invest_recommendation'].lower()} with an investment score of "
+                f"{lead['investment_score']}/100. The strongest signals are "
+                f"{'; '.join(lead['strengths'][:2]) or 'limited but workable traction'}"
+            )
+
+        if intent == "shortcomings":
+            return (
+                f"{lead['name']} shortcomings: " +
+                "; ".join(lead["shortcomings"][:3])
+            )
+
+        if intent == "crm":
+            return (
+                f"For {lead['name']}, I would start with a {lead['platform_type'].lower()}. "
+                f"The recommended service is {lead['recommended_service_type'].lower()}. "
+                f"Reason: {lead['platform_reason']}"
+            )
+
+        if intent == "proposal":
+            return (
+                f"For {lead['name']}, my proposal recommendation is: {lead['proposal_recommendation']} "
+                f"Fit summary: {lead['fit_summary']} Risk: {lead['risk_summary']}"
+            )
+
+        return (
+            self._format_candidate_snapshot(lead) + " Ask me about investment priority, shortcomings, "
+            "CRM/platform choice, or proposal readiness for this selected lead."
+        )
+
+    def _analyze_candidate_pool(self, command: str, candidate_context: List[Dict]) -> str:
+        if not candidate_context:
+            return "I need a set of plotted candidates first. Ask me to find businesses, then I can compare them."
+
+        ranked = self._rank_candidates(candidate_context)
+        intent = self._detect_strategy_intent(command)
+        top = ranked[: min(5, len(ranked))]
+
+        if intent == "shortcomings":
+            lines = ["Shortcomings across the current options:"]
+            for idx, lead in enumerate(top, start=1):
+                items = "; ".join(lead["shortcomings"][:2]) if lead["shortcomings"] else "No major gap flagged"
+                lines.append(f"{idx}. {lead['name']} — {items}")
+            return "\n".join(lines)
+
+        if intent == "crm":
+            lines = ["Platform recommendation across the current options:"]
+            for idx, lead in enumerate(top, start=1):
+                lines.append(
+                    f"{idx}. {lead['name']} — {lead['platform_type']} / {lead['recommended_service_type']}: "
+                    f"{lead['platform_reason']}"
+                )
+            return "\n".join(lines)
+
+        if intent == "proposal":
+            lines = ["Proposal priority across the current options:"]
+            for idx, lead in enumerate(top, start=1):
+                lines.append(
+                    f"{idx}. {lead['name']} — {lead['proposal_recommendation']} "
+                    f"(investment score {lead['investment_score']}/100, readiness {lead['proposal_readiness']})"
+                )
+            return "\n".join(lines)
+
+        best = top[0]
+        runners_up = ", ".join(f"{lead['name']} ({lead['investment_score']}/100)" for lead in top[1:3])
+        response = (
+            f"My first investment priority is {best['name']} at {best['investment_score']}/100 because "
+            f"{best['fit_summary'].lower()}"
+        )
+        if runners_up:
+            response += f" Next in line: {runners_up}."
+        response += " Ask me about shortcomings, CRM/platform choice, or proposal readiness if you want the next decision layer."
+        return response
+
+    def _general_chat_fallback(self, command: str, selected_lead: Optional[Dict] = None, candidate_context: Optional[List[Dict]] = None) -> str:
+        if selected_lead:
+            selected_note = self._format_candidate_snapshot(self._enrich_candidate(selected_lead))
+            return (
+                f"{selected_note} You can ask whether to invest, what the shortcomings are, "
+                "which platform fits, or whether to send a proposal."
+            )
+
+        if candidate_context:
+            return self._analyze_candidate_pool("which one should we invest in", candidate_context)
+
+        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        if api_key:
+            try:
+                client = openai.OpenAI(api_key=api_key)
+                response = client.chat.completions.create(
+                    model=os.environ.get("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are JARVIS, an AI agency assistant. Answer briefly and directly. "
+                                "You can help with local business discovery, lead analysis, ROI planning, "
+                                "pitch scripts, contracts, board reports, and revenue plans. "
+                                "If a request is outside those capabilities, say so and suggest a nearby supported action."
+                            ),
+                        },
+                        {"role": "user", "content": command},
+                    ],
+                    max_tokens=220,
+                )
+                message = response.choices[0].message.content if response.choices else ""
+                if message:
+                    return message.strip()
+            except Exception:
+                pass
+
+        return (
+            f'I understood your request: "{command}". '
+            "I can currently help with business discovery, lead analysis, ROI calculations, "
+            "pitch scripts, contracts, board reports, and revenue plans. "
+            "For example: 'Find 5 coffee shops in Craigieburn, Melbourne'."
+        )
+
+    def handle_command(
+        self,
+        command: str,
+        selected_lead: Optional[Dict] = None,
+        candidate_context: Optional[List[Dict]] = None,
+        market_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Structured natural-language command handling for chat and map workflows."""
+        cmd = command.lower().strip()
+        candidate_context = candidate_context or []
+        resolved_market = self._resolve_market_code(market_code, selected_lead, candidate_context, command)
+
+        business_search = self._extract_business_search(command)
+        if business_search:
+            business_search["country_code"] = resolved_market or business_search["country_code"]
+            try:
+                return self._handle_business_search(business_search)
+            except Exception as exc:
+                return {
+                    "response": (
+                        "I understood that as a business search, but the live lookup failed. "
+                        f"Details: {exc}"
+                    ),
+                    "action": None,
+                    "leads": [],
+                    "market_profile": self.get_market_profile(resolved_market),
+                }
+
+        if selected_lead and (
+            self._detect_strategy_intent(command) or any(token in cmd for token in ("this one", "this option", "selected"))
+        ):
+            enriched = self._enrich_candidate(selected_lead, resolved_market)
+            return {
+                "response": self._analyze_selected_candidate(command, enriched),
+                "action": "focus_selected_lead",
+                "selected_lead": enriched,
+                "leads": self._rank_candidates(candidate_context, resolved_market),
+                "proposal_brief": self.build_proposal_brief(enriched, resolved_market),
+                "market_profile": self.get_market_profile(resolved_market),
+            }
+
+        if candidate_context and (
+            self._detect_strategy_intent(command) or any(token in cmd for token in ("these", "them", "options", "which one"))
+        ):
+            ranked = self._rank_candidates(candidate_context, resolved_market)
+            return {
+                "response": self._analyze_candidate_pool(command, ranked),
+                "action": "candidate_pool_analysis",
+                "selected_lead": selected_lead,
+                "leads": ranked,
+                "comparison": self.compare_candidates(ranked, resolved_market),
+                "market_profile": self.get_market_profile(resolved_market),
+            }
+
+        if "tara" in cmd or "scan" in cmd:
+            return {"response": "Opening a fresh market scan.", "action": "open_scan_modal", "leads": [], "market_profile": self.get_market_profile(resolved_market)}
+        if "analiz" in cmd or "score" in cmd:
+            return {"response": "Preparing a structured candidate analysis.", "action": None, "leads": [], "market_profile": self.get_market_profile(resolved_market)}
+        if "pitch" in cmd or "script" in cmd:
+            return {"response": "Preparing outreach messaging.", "action": None, "leads": [], "market_profile": self.get_market_profile(resolved_market)}
+        if "sözleşme" in cmd or "contract" in cmd:
+            return {"response": "Preparing a market-aware contract draft.", "action": None, "leads": [], "market_profile": self.get_market_profile(resolved_market)}
+        if "toplantı" in cmd or "board" in cmd:
+            return {"response": "Preparing an operator review summary.", "action": None, "leads": [], "market_profile": self.get_market_profile(resolved_market)}
+        if "hedef" in cmd or "roadmap" in cmd:
+            return {"response": "Building a revenue roadmap.", "action": None, "leads": [], "market_profile": self.get_market_profile(resolved_market)}
+        if "roi" in cmd:
+            return {"response": "Calculating ROI using the current market profile.", "action": None, "leads": [], "market_profile": self.get_market_profile(resolved_market)}
+
+        return {
+            "response": self._general_chat_fallback(command, selected_lead, candidate_context),
+            "action": None,
+            "selected_lead": self._enrich_candidate(selected_lead, resolved_market) if selected_lead else None,
+            "leads": self._rank_candidates(candidate_context, resolved_market) if candidate_context else [],
+            "comparison": self.compare_candidates(candidate_context, resolved_market) if candidate_context else None,
+            "market_profile": self.get_market_profile(resolved_market),
+        }
 
     def _extract_business_search(self, command: str) -> Optional[Dict]:
         """Parse prompts like 'find five coffee shops in Craigieburn'."""
@@ -1114,140 +2120,11 @@ class JARVIS:
         for hint, country_code in self.COUNTRY_HINTS.items():
             if hint in haystack:
                 return country_code
-        return "US"
-
-    def _format_business_search_response(self, request: Dict, leads: List[Dict]) -> str:
-        if not leads:
-            return (
-                f"I couldn't find any {request['business_type']} results in {request['location']} right now. "
-                "Try a broader location or a different business type."
-            )
-
-        filtered = leads
-        threshold = request.get("rating_threshold")
-        if threshold is not None:
-            matching = [lead for lead in leads if lead.get("rating", 0) >= threshold]
-            if matching:
-                filtered = matching
-
-        ranked = sorted(
-            filtered,
-            key=lambda lead: (
-                lead.get("rating", 0),
-                lead.get("review_count", 0),
-                1 if lead.get("website") else 0,
-            ),
-            reverse=True,
-        )
-        selected = ranked[:request["count"]]
-
-        lines = [
-            f"I found {len(selected)} {request['business_type']} results in {request['location']}."
-        ]
-        if threshold is not None:
-            lines[0] += f" Prioritised ratings of {threshold:.1f}+ where available."
-
-        for index, lead in enumerate(selected, start=1):
-            rating = lead.get("rating", 0)
-            rating_text = f"{rating:.1f}★" if rating else "No rating"
-            reviews = lead.get("review_count", 0)
-            review_text = f"{reviews} reviews" if reviews else "review count unavailable"
-            line = f"{index}. {lead.get('name', 'Unknown')} — {rating_text} ({review_text})"
-
-            details = []
-            if lead.get("raw_address"):
-                details.append(lead["raw_address"])
-            if lead.get("phone"):
-                details.append(lead["phone"])
-            if lead.get("website"):
-                details.append(lead["website"])
-
-            if details:
-                line += f"\n   {' | '.join(details)}"
-
-            lines.append(line)
-
-        return "\n".join(lines)
-
-    def _handle_business_search(self, request: Dict) -> str:
-        raw_results = self.serpapi.search_maps(
-            request["business_type"],
-            request["location"],
-            request["country_code"],
-            request["language"],
-            request["max_results"],
-        )
-        leads = self.serpapi.process_results(
-            raw_results,
-            request["business_type"],
-            request["country_code"],
-        )
-        return self._format_business_search_response(request, leads)
-
-    def _general_chat_fallback(self, command: str) -> str:
-        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-        if api_key:
-            try:
-                client = openai.OpenAI(api_key=api_key)
-                response = client.chat.completions.create(
-                    model=os.environ.get("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are JARVIS, an AI agency assistant. Answer briefly and directly. "
-                                "You can help with local business discovery, lead analysis, ROI planning, "
-                                "pitch scripts, contracts, board reports, and revenue plans. "
-                                "If a request is outside those capabilities, say so and suggest a nearby supported action."
-                            ),
-                        },
-                        {"role": "user", "content": command},
-                    ],
-                    max_tokens=220,
-                )
-                message = response.choices[0].message.content if response.choices else ""
-                if message:
-                    return message.strip()
-            except Exception:
-                pass
-
-        return (
-            f'I understood your request: "{command}". '
-            "I can currently help with business discovery, lead analysis, ROI calculations, "
-            "pitch scripts, contracts, board reports, and revenue plans. "
-            "For example: 'Find 5 coffee shops in Craigieburn, Melbourne'."
-        )
+        return self.default_market
 
     def process_command(self, command: str) -> str:
         """Doğal dil komut işleme"""
-        cmd = command.lower().strip()
-
-        business_search = self._extract_business_search(command)
-        if business_search:
-            try:
-                return self._handle_business_search(business_search)
-            except Exception as exc:
-                return (
-                    "I understood that as a business search, but the live lookup failed. "
-                    f"Details: {exc}"
-                )
-
-        if "tara" in cmd or "scan" in cmd:
-            return "🗺️ Harita taraması başlatılıyor..."
-        elif "analiz" in cmd or "score" in cmd:
-            return "📊 Lead analizi yapılıyor..."
-        elif "pitch" in cmd or "script" in cmd:
-            return "📝 Pitch scripti hazırlanıyor..."
-        elif "sözleşme" in cmd or "contract" in cmd:
-            return "📄 Sözleşme oluşturuluyor..."
-        elif "toplantı" in cmd or "board" in cmd:
-            return "🏛️ Yönetim kurulu raporu hazırlanıyor..."
-        elif "hedef" in cmd or "roadmap" in cmd:
-            return "🎯 Gelir yol haritası oluşturuluyor..."
-        elif "roi" in cmd:
-            return "💰 ROI hesaplanıyor..."
-        else:
-            return self._general_chat_fallback(command)
+        return self.handle_command(command).get("response", "")
 
 
 # ============================================

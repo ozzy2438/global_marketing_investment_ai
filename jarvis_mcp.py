@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-JARVIS AI Agency OS — Claude Code / MCP Integration
-=====================================================
-JARVIS'in "mühendis" katmanı. Teknik işleri Claude Code'a delege eder.
+JARVIS MCP / Delivery Lane
+==========================
+This module represents the downstream execution lane, not the primary product promise.
 
-MCP (Model Context Protocol) üzerinden:
-- Website oluşturma
-- Chatbot geliştirme
-- Otomasyon kurulumu
-- Kod üretimi
-- Deployment
+The main operator workflow now lives in the decision engine and cockpit UI. MCP-backed
+delivery stays secondary until candidate scoring, operator decisions, and proposal quality
+are stable.
 
-Kullanım:
-    from jarvis_mcp import ClaudeCodeBridge
-    bridge = ClaudeCodeBridge()
-    result = bridge.delegate_task(task)
+This file still contains a number of legacy sector templates from earlier iterations of the
+project. Treat them as implementation seeds rather than current product messaging.
 """
 
 import json

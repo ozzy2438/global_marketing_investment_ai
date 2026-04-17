@@ -1,904 +1,2634 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JARVIS AI Agency OS — Dashboard</title>
-    <!-- Leaflet CSS & JS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>JARVIS Operator Cockpit</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         :root {
-            --bg-primary: #0a0e17;
-            --bg-secondary: #111827;
-            --bg-card: #1a2332;
-            --bg-hover: #243044;
-            --accent: #3b82f6;
-            --accent-glow: rgba(59,130,246,0.3);
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --border: #1e293b;
+            --bg: #07111a;
+            --bg-elevated: rgba(10, 24, 36, 0.86);
+            --bg-card: rgba(14, 30, 45, 0.9);
+            --bg-muted: rgba(18, 38, 56, 0.82);
+            --line: rgba(125, 176, 211, 0.18);
+            --line-strong: rgba(125, 176, 211, 0.34);
+            --text: #ecf4fb;
+            --muted: #8da5b7;
+            --accent: #52c4b9;
+            --accent-2: #ffb25b;
+            --accent-3: #79b8ff;
+            --success: #32d296;
+            --warning: #f8b84f;
+            --danger: #ff7a7a;
+            --shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
             --sidebar-width: 260px;
+            --radius-xl: 24px;
+            --radius-lg: 18px;
+            --radius-md: 14px;
+            --radius-sm: 10px;
         }
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:'Inter',-apple-system,sans-serif; background:var(--bg-primary); color:var(--text-primary); display:flex; min-height:100vh; }
 
-        /* Sidebar */
-        .sidebar { width:var(--sidebar-width); background:var(--bg-secondary); border-right:1px solid var(--border); padding:20px 0; position:fixed; height:100vh; overflow-y:auto; z-index:100; }
-        .sidebar-logo { padding:0 20px 24px; border-bottom:1px solid var(--border); margin-bottom:16px; }
-        .sidebar-logo h1 { font-size:22px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
-        .sidebar-logo span { font-size:11px; color:var(--text-muted); }
-        .nav-section { padding:8px 12px; font-size:10px; text-transform:uppercase; color:var(--text-muted); letter-spacing:1.5px; margin-top:12px; }
-        .nav-item { display:flex; align-items:center; gap:10px; padding:10px 20px; color:var(--text-secondary); cursor:pointer; transition:all .2s; font-size:13px; border-left:3px solid transparent; }
-        .nav-item:hover { background:var(--bg-hover); color:var(--text-primary); }
-        .nav-item.active { background:rgba(59,130,246,0.1); color:var(--accent); border-left-color:var(--accent); }
-        .nav-item .icon { width:18px; text-align:center; }
-        .nav-badge { margin-left:auto; background:var(--danger); color:white; font-size:10px; padding:2px 6px; border-radius:10px; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-        /* Main */
-        .main { margin-left:var(--sidebar-width); flex:1; padding:24px; }
-        .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
-        .header h2 { font-size:20px; font-weight:600; }
-        .header-actions { display:flex; gap:10px; }
-        .btn { padding:8px 16px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:500; transition:all .2s; }
-        .btn-primary { background:var(--accent); color:white; }
-        .btn-primary:hover { background:#2563eb; box-shadow:0 0 20px var(--accent-glow); }
-        .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text-secondary); }
-        .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+        html, body {
+            min-height: 100%;
+        }
 
-        /* Stats Grid */
-        .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
-        .stat-card { background:var(--bg-card); border-radius:12px; padding:20px; border:1px solid var(--border); transition:all .3s; }
-        .stat-card:hover { border-color:var(--accent); transform:translateY(-2px); box-shadow:0 8px 25px rgba(0,0,0,0.3); }
-        .stat-label { font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
-        .stat-value { font-size:28px; font-weight:700; }
-        .stat-value.blue { color:var(--accent); }
-        .stat-value.green { color:var(--success); }
-        .stat-value.yellow { color:var(--warning); }
-        .stat-value.red { color:var(--danger); }
-        .stat-change { font-size:11px; margin-top:6px; }
-        .stat-change.up { color:var(--success); }
-        .stat-change.down { color:var(--danger); }
+        body {
+            font-family: "Manrope", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(82, 196, 185, 0.17), transparent 34%),
+                radial-gradient(circle at bottom right, rgba(255, 178, 91, 0.16), transparent 28%),
+                linear-gradient(140deg, #040a12 0%, #08131d 38%, #091a26 100%);
+            display: grid;
+            grid-template-columns: var(--sidebar-width) 1fr;
+            min-height: 100vh;
+        }
 
-        /* Grid Layout */
-        .grid-2 { display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:24px; }
-        .grid-equal { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 28px 28px;
+            pointer-events: none;
+            opacity: 0.18;
+        }
 
-        /* Cards */
-        .card { background:var(--bg-card); border-radius:12px; padding:20px; border:1px solid var(--border); }
-        .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-        .card-title { font-size:15px; font-weight:600; }
-        .card-action { font-size:12px; color:var(--accent); cursor:pointer; }
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            padding: 24px 18px;
+            border-right: 1px solid var(--line);
+            background: rgba(6, 15, 24, 0.9);
+            backdrop-filter: blur(18px);
+            z-index: 5;
+        }
 
-        /* Table */
-        .table { width:100%; border-collapse:collapse; }
-        .table th { text-align:left; padding:10px 12px; font-size:11px; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); letter-spacing:1px; }
-        .table td { padding:12px; font-size:13px; border-bottom:1px solid var(--border); }
-        .table tr:hover { background:var(--bg-hover); }
+        .brand {
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(17, 34, 52, 0.95), rgba(8, 18, 28, 0.92));
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
 
-        /* Badges */
-        .badge { padding:3px 8px; border-radius:6px; font-size:11px; font-weight:500; }
-        .badge-hot { background:rgba(239,68,68,0.15); color:#ef4444; }
-        .badge-warm { background:rgba(245,158,11,0.15); color:#f59e0b; }
-        .badge-cold { background:rgba(59,130,246,0.15); color:#3b82f6; }
-        .badge-won { background:rgba(16,185,129,0.15); color:#10b981; }
-        .badge-premium { background:rgba(139,92,246,0.15); color:#8b5cf6; }
-        .badge-professional { background:rgba(59,130,246,0.15); color:#3b82f6; }
-        .badge-starter { background:rgba(16,185,129,0.15); color:#10b981; }
+        .brand h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 28px;
+            letter-spacing: -0.04em;
+        }
 
-        /* Score Ring */
-        .score-ring { width:120px; height:120px; position:relative; margin:0 auto 16px; }
-        .score-ring svg { transform:rotate(-90deg); }
-        .score-ring .value { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:28px; font-weight:700; }
+        .brand p {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 8px;
+            line-height: 1.5;
+        }
 
-        /* Pipeline */
-        .pipeline { display:flex; gap:8px; margin-top:12px; }
-        .pipeline-stage { flex:1; text-align:center; padding:12px 8px; background:var(--bg-primary); border-radius:8px; }
-        .pipeline-stage .count { font-size:22px; font-weight:700; color:var(--accent); }
-        .pipeline-stage .label { font-size:10px; color:var(--text-muted); margin-top:4px; text-transform:uppercase; }
+        .market-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(82, 196, 185, 0.12);
+            border: 1px solid rgba(82, 196, 185, 0.28);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+        }
 
-        /* Activity */
-        .activity-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
-        .activity-item:last-child { border:none; }
-        .activity-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
-        .activity-icon.scan { background:rgba(59,130,246,0.15); }
-        .activity-icon.deal { background:rgba(16,185,129,0.15); }
-        .activity-icon.call { background:rgba(245,158,11,0.15); }
-        .activity-icon.alert { background:rgba(239,68,68,0.15); }
-        .activity-text { font-size:13px; }
-        .activity-time { font-size:11px; color:var(--text-muted); }
+        .nav-group {
+            margin-top: 24px;
+        }
 
-        /* JARVIS Chat */
-        .jarvis-fab { position:fixed; bottom:24px; right:24px; width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg,#3b82f6,#8b5cf6); border:none; color:white; font-size:24px; cursor:pointer; box-shadow:0 4px 20px var(--accent-glow); z-index:1000; transition:all .3s; }
-        .jarvis-fab:hover { transform:scale(1.1); }
-        .jarvis-chat { position:fixed; bottom:90px; right:24px; width:380px; height:500px; background:var(--bg-secondary); border-radius:16px; border:1px solid var(--border); display:none; flex-direction:column; z-index:1000; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
-        .jarvis-chat.open { display:flex; }
-        .jarvis-chat-header { padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
-        .jarvis-chat-header .dot { width:8px; height:8px; border-radius:50%; background:var(--success); animation:pulse 2s infinite; }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-        .jarvis-chat-body { flex:1; overflow-y:auto; padding:16px; }
-        .chat-msg { margin-bottom:12px; max-width:85%; }
-        .chat-msg.jarvis { margin-right:auto; }
-        .chat-msg.user { margin-left:auto; }
-        .chat-bubble { padding:10px 14px; border-radius:12px; font-size:13px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
-        .chat-msg.jarvis .chat-bubble { background:var(--bg-card); border:1px solid var(--border); }
-        .chat-msg.user .chat-bubble { background:var(--accent); color:white; }
-        .jarvis-chat-input { padding:12px; border-top:1px solid var(--border); display:flex; gap:8px; }
-        .jarvis-chat-input input { flex:1; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text-primary); font-size:13px; outline:none; }
-        .jarvis-chat-input input:focus { border-color:var(--accent); }
-        .jarvis-chat-input button { background:var(--accent); border:none; color:white; padding:10px 14px; border-radius:8px; cursor:pointer; }
+        .nav-label {
+            padding: 0 12px;
+            margin-bottom: 10px;
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: rgba(141, 165, 183, 0.7);
+        }
 
-        /* Scan Modal */
-        .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:2000; }
-        .modal-overlay.open { display:flex; }
-        .modal { background:var(--bg-secondary); border-radius:16px; padding:24px; width:480px; border:1px solid var(--border); }
-        .modal h3 { margin-bottom:16px; }
-        .form-group { margin-bottom:14px; }
-        .form-group label { display:block; font-size:12px; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:1px; }
-        .form-group input, .form-group select { width:100%; padding:10px 14px; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; color:var(--text-primary); font-size:13px; outline:none; }
-        .form-group input:focus, .form-group select:focus { border-color:var(--accent); }
-        .form-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+        .nav-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 13px 14px;
+            border: 1px solid transparent;
+            border-radius: 14px;
+            background: transparent;
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 160ms ease;
+            text-align: left;
+        }
 
-        /* Loading */
-        .loading { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
-        @keyframes spin { to{transform:rotate(360deg)} }
+        .nav-item:hover {
+            color: var(--text);
+            background: rgba(82, 196, 185, 0.08);
+            border-color: rgba(82, 196, 185, 0.16);
+        }
 
-        /* Toast */
-        .toast { position:fixed; top:20px; right:20px; padding:14px 20px; border-radius:10px; font-size:13px; z-index:3000; transform:translateX(400px); transition:transform .3s; }
-        .toast.show { transform:translateX(0); }
-        .toast.success { background:var(--success); color:white; }
-        .toast.error { background:var(--danger); color:white; }
+        .nav-item.active {
+            color: var(--text);
+            border-color: rgba(82, 196, 185, 0.28);
+            background: linear-gradient(135deg, rgba(82, 196, 185, 0.14), rgba(121, 184, 255, 0.08));
+        }
 
-        /* Responsive */
-        @media(max-width:1200px) { .stats-grid{grid-template-columns:repeat(2,1fr);} .grid-2,.grid-equal{grid-template-columns:1fr;} }
-        @media(max-width:768px) { .sidebar{display:none;} .main{margin-left:0;} .stats-grid{grid-template-columns:1fr;} }
+        .nav-item span:last-child {
+            flex: 1;
+        }
+
+        .sidebar-note {
+            margin-top: auto;
+            padding: 16px;
+            border-radius: 18px;
+            border: 1px solid var(--line);
+            background: rgba(8, 19, 30, 0.92);
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--muted);
+        }
+
+        .sidebar-note strong {
+            color: var(--text);
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .main-shell {
+            padding: 26px 28px 60px;
+            position: relative;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+
+        .topbar h2 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 34px;
+            letter-spacing: -0.05em;
+            line-height: 1.05;
+        }
+
+        .topbar p {
+            color: var(--muted);
+            margin-top: 8px;
+            font-size: 14px;
+        }
+
+        .topbar-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .button {
+            appearance: none;
+            border: 1px solid var(--line);
+            background: rgba(10, 24, 36, 0.85);
+            color: var(--text);
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: 160ms ease;
+        }
+
+        .button:hover {
+            transform: translateY(-1px);
+            border-color: var(--line-strong);
+        }
+
+        .button.primary {
+            background: linear-gradient(135deg, rgba(82, 196, 185, 0.24), rgba(82, 196, 185, 0.14));
+            border-color: rgba(82, 196, 185, 0.34);
+            color: #dcfffb;
+        }
+
+        .button.secondary {
+            background: linear-gradient(135deg, rgba(255, 178, 91, 0.16), rgba(255, 178, 91, 0.08));
+            border-color: rgba(255, 178, 91, 0.28);
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+            animation: page-enter 260ms ease;
+        }
+
+        @keyframes page-enter {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hero-card,
+        .panel,
+        .work-card {
+            background: var(--bg-card);
+            border: 1px solid var(--line);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(14px);
+        }
+
+        .hero-card {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr;
+            gap: 18px;
+            padding: 26px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .hero-card::after {
+            content: "";
+            position: absolute;
+            inset: auto -10% -40% auto;
+            width: 280px;
+            height: 280px;
+            background: radial-gradient(circle, rgba(82, 196, 185, 0.22), transparent 68%);
+            pointer-events: none;
+        }
+
+        .hero-card h3 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 28px;
+            letter-spacing: -0.05em;
+            line-height: 1.08;
+            max-width: 620px;
+        }
+
+        .hero-card p {
+            margin-top: 12px;
+            color: var(--muted);
+            line-height: 1.7;
+            max-width: 640px;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .chip-button {
+            border: 1px solid rgba(121, 184, 255, 0.2);
+            background: rgba(121, 184, 255, 0.08);
+            color: var(--text);
+            border-radius: 999px;
+            padding: 10px 14px;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .hero-aside {
+            display: grid;
+            gap: 12px;
+            align-content: start;
+        }
+
+        .mini-note {
+            padding: 16px 18px;
+            border-radius: 18px;
+            background: rgba(8, 20, 31, 0.95);
+            border: 1px solid var(--line);
+        }
+
+        .mini-note strong {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .mini-note span {
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .context-ribbon {
+            margin-top: 18px;
+            padding: 15px 18px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 178, 91, 0.2);
+            background: linear-gradient(90deg, rgba(255, 178, 91, 0.12), rgba(121, 184, 255, 0.08));
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .context-ribbon strong {
+            color: var(--text);
+        }
+
+        .context-ribbon span {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .stat-card {
+            padding: 20px;
+            border-radius: 20px;
+            border: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(14, 30, 45, 0.94), rgba(8, 20, 30, 0.92));
+            box-shadow: var(--shadow);
+        }
+
+        .stat-card .label {
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .stat-card .value {
+            margin-top: 10px;
+            font-size: 34px;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+            font-family: "Space Grotesk", sans-serif;
+        }
+
+        .stat-card .note {
+            margin-top: 8px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 2.1fr) minmax(320px, 0.95fr);
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .panel {
+            padding: 18px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+        }
+
+        .panel-subtitle {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        #map {
+            width: 100%;
+            height: 660px;
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid rgba(121, 184, 255, 0.16);
+        }
+
+        .map-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .legend {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dot {
+            width: 11px;
+            height: 11px;
+            border-radius: 999px;
+            display: inline-block;
+        }
+
+        .candidate-shell {
+            display: grid;
+            gap: 14px;
+        }
+
+        .empty-state {
+            padding: 24px;
+            border-radius: 18px;
+            border: 1px dashed rgba(141, 165, 183, 0.24);
+            background: rgba(8, 18, 28, 0.74);
+            color: var(--muted);
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        .candidate-name {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 28px;
+            letter-spacing: -0.05em;
+            line-height: 1.08;
+        }
+
+        .candidate-meta {
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .score-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .score-box {
+            padding: 14px;
+            border-radius: 16px;
+            background: var(--bg-muted);
+            border: 1px solid var(--line);
+        }
+
+        .score-box .label {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+        }
+
+        .score-box .value {
+            margin-top: 8px;
+            font-size: 24px;
+            font-weight: 800;
+            font-family: "Space Grotesk", sans-serif;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 999px;
+            padding: 7px 11px;
+            font-size: 12px;
+            font-weight: 800;
+            border: 1px solid var(--line);
+            background: rgba(121, 184, 255, 0.08);
+        }
+
+        .pill.success {
+            background: rgba(50, 210, 150, 0.12);
+            color: #b8ffe4;
+            border-color: rgba(50, 210, 150, 0.22);
+        }
+
+        .pill.warning {
+            background: rgba(248, 184, 79, 0.12);
+            color: #ffe0af;
+            border-color: rgba(248, 184, 79, 0.22);
+        }
+
+        .pill.danger {
+            background: rgba(255, 122, 122, 0.12);
+            color: #ffd5d5;
+            border-color: rgba(255, 122, 122, 0.22);
+        }
+
+        .section-stack {
+            display: grid;
+            gap: 12px;
+        }
+
+        .section-stack h4 {
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        .section-stack p,
+        .section-stack li {
+            font-size: 13px;
+            line-height: 1.65;
+            color: var(--muted);
+        }
+
+        .detail-list {
+            list-style: none;
+            display: grid;
+            gap: 8px;
+        }
+
+        .detail-list li {
+            padding-left: 14px;
+            position: relative;
+        }
+
+        .detail-list li::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 999px;
+            position: absolute;
+            left: 0;
+            top: 10px;
+            background: var(--accent-2);
+        }
+
+        .gap-meter {
+            display: grid;
+            gap: 10px;
+        }
+
+        .gap-row {
+            display: grid;
+            grid-template-columns: 130px 1fr 48px;
+            gap: 12px;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .bar {
+            position: relative;
+            height: 9px;
+            border-radius: 999px;
+            background: rgba(121, 184, 255, 0.08);
+            overflow: hidden;
+        }
+
+        .bar > span {
+            position: absolute;
+            inset: 0 auto 0 0;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .form-grid.two {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .field {
+            display: grid;
+            gap: 7px;
+        }
+
+        .field label {
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .field input,
+        .field select,
+        .field textarea {
+            width: 100%;
+            border: 1px solid var(--line);
+            background: rgba(7, 18, 28, 0.94);
+            color: var(--text);
+            border-radius: 12px;
+            padding: 11px 12px;
+            font: inherit;
+            outline: none;
+        }
+
+        .field textarea {
+            min-height: 88px;
+            resize: vertical;
+        }
+
+        .field input:focus,
+        .field select:focus,
+        .field textarea:focus {
+            border-color: rgba(82, 196, 185, 0.46);
+            box-shadow: 0 0 0 3px rgba(82, 196, 185, 0.12);
+        }
+
+        .range-readout {
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .lower-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .table-wrap {
+            overflow: auto;
+            border-radius: 16px;
+            border: 1px solid rgba(121, 184, 255, 0.12);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 13px 14px;
+            border-bottom: 1px solid rgba(121, 184, 255, 0.1);
+            font-size: 13px;
+            vertical-align: top;
+        }
+
+        th {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: var(--muted);
+            background: rgba(7, 18, 28, 0.92);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: background 150ms ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(82, 196, 185, 0.06);
+        }
+
+        tbody tr.active {
+            background: rgba(82, 196, 185, 0.12);
+        }
+
+        .recent-decision {
+            padding: 14px 16px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(7, 18, 28, 0.9);
+            display: grid;
+            gap: 6px;
+        }
+
+        .recent-decision strong {
+            font-size: 14px;
+        }
+
+        .recent-decision span {
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .summary-box {
+            padding: 14px;
+            border-radius: 16px;
+            background: rgba(7, 18, 28, 0.9);
+            border: 1px solid var(--line);
+        }
+
+        .summary-box .metric {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            margin-top: 6px;
+        }
+
+        .subpage-grid {
+            display: grid;
+            gap: 18px;
+        }
+
+        .playbook-grid,
+        .delivery-grid,
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .card-tile {
+            padding: 22px;
+            border-radius: 20px;
+            border: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(13, 28, 43, 0.95), rgba(7, 17, 28, 0.92));
+            box-shadow: var(--shadow);
+        }
+
+        .card-tile h4 {
+            margin-top: 14px;
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+        }
+
+        .card-tile p,
+        .card-tile li {
+            margin-top: 10px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--muted);
+        }
+
+        .card-tile ul {
+            padding-left: 18px;
+        }
+
+        .roi-layout {
+            display: grid;
+            grid-template-columns: minmax(320px, 420px) 1fr;
+            gap: 18px;
+        }
+
+        .roi-result {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 14px;
+        }
+
+        .roi-box {
+            padding: 16px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(7, 18, 28, 0.92);
+        }
+
+        .roi-box .label {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+        }
+
+        .roi-box .value {
+            margin-top: 8px;
+            font-size: 24px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 800;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            background: rgba(2, 7, 12, 0.7);
+            z-index: 20;
+            backdrop-filter: blur(10px);
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal {
+            width: min(540px, 100%);
+            background: rgba(10, 24, 36, 0.96);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .modal h3 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 26px;
+            letter-spacing: -0.04em;
+            margin-bottom: 8px;
+        }
+
+        .modal p {
+            color: var(--muted);
+            margin-bottom: 18px;
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .scan-status {
+            margin-top: 14px;
+            padding: 14px;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+            background: rgba(7, 18, 28, 0.88);
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.6;
+            display: none;
+        }
+
+        .chat-toggle {
+            position: fixed;
+            right: 22px;
+            bottom: 22px;
+            width: 62px;
+            height: 62px;
+            border-radius: 999px;
+            border: 1px solid rgba(82, 196, 185, 0.3);
+            background: linear-gradient(135deg, rgba(82, 196, 185, 0.94), rgba(121, 184, 255, 0.86));
+            color: #041017;
+            font-size: 24px;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 20px 45px rgba(0, 0, 0, 0.32);
+            z-index: 12;
+        }
+
+        .chat-dock {
+            position: fixed;
+            right: 22px;
+            bottom: 96px;
+            width: min(430px, calc(100vw - 24px));
+            height: min(620px, calc(100vh - 130px));
+            display: none;
+            flex-direction: column;
+            border-radius: 24px;
+            border: 1px solid var(--line);
+            background: rgba(7, 18, 28, 0.97);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            z-index: 12;
+            backdrop-filter: blur(16px);
+        }
+
+        .chat-dock.open {
+            display: flex;
+        }
+
+        .chat-header {
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .chat-header strong {
+            display: block;
+            font-size: 18px;
+            font-family: "Space Grotesk", sans-serif;
+            letter-spacing: -0.04em;
+        }
+
+        .chat-header span {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .chat-context {
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(82, 196, 185, 0.08);
+            display: none;
+            gap: 12px;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-context.active {
+            display: flex;
+        }
+
+        .chat-context-copy {
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--muted);
+        }
+
+        .chat-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 18px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .chat-msg {
+            max-width: 86%;
+        }
+
+        .chat-msg.user {
+            margin-left: auto;
+        }
+
+        .chat-msg.jarvis {
+            margin-right: auto;
+        }
+
+        .chat-bubble {
+            padding: 13px 15px;
+            border-radius: 18px;
+            line-height: 1.65;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .chat-msg.user .chat-bubble {
+            background: linear-gradient(135deg, rgba(82, 196, 185, 0.96), rgba(121, 184, 255, 0.92));
+            color: #041117;
+            font-weight: 700;
+        }
+
+        .chat-msg.jarvis .chat-bubble {
+            background: rgba(16, 33, 48, 0.95);
+            border: 1px solid var(--line);
+        }
+
+        .chat-suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .chat-suggestion {
+            border: 1px solid rgba(82, 196, 185, 0.28);
+            background: rgba(82, 196, 185, 0.1);
+            color: var(--text);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .chat-input {
+            padding: 14px;
+            border-top: 1px solid var(--line);
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+        }
+
+        .chat-input input {
+            border: 1px solid var(--line);
+            background: rgba(10, 24, 36, 0.92);
+            color: var(--text);
+            border-radius: 14px;
+            padding: 12px 14px;
+            font: inherit;
+            outline: none;
+        }
+
+        .toast {
+            position: fixed;
+            top: 22px;
+            right: 22px;
+            padding: 14px 18px;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(7, 18, 28, 0.94);
+            color: var(--text);
+            box-shadow: var(--shadow);
+            opacity: 0;
+            transform: translateY(-8px);
+            transition: 170ms ease;
+            pointer-events: none;
+            z-index: 30;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.success {
+            border-color: rgba(50, 210, 150, 0.25);
+        }
+
+        .toast.error {
+            border-color: rgba(255, 122, 122, 0.28);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 1320px) {
+            .workspace,
+            .lower-grid,
+            .roi-layout,
+            .playbook-grid,
+            .delivery-grid,
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .score-strip,
+            .stat-grid,
+            .summary-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .hero-card {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 980px) {
+            body {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: relative;
+                height: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .main-shell {
+                padding: 18px;
+            }
+
+            .topbar {
+                flex-direction: column;
+            }
+
+            .topbar-actions {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .stat-grid,
+            .summary-grid,
+            .score-strip,
+            .form-grid.two,
+            .roi-result {
+                grid-template-columns: 1fr;
+            }
+
+            #map {
+                height: 420px;
+            }
+
+            .chat-dock {
+                right: 12px;
+                left: 12px;
+                width: auto;
+            }
+        }
     </style>
 </head>
 <body>
-
-<!-- Sidebar -->
-<nav class="sidebar">
-    <div class="sidebar-logo">
-        <h1>🤖 JARVIS</h1>
-        <span>AI Agency Operating System v1.0</span>
-    </div>
-
-    <div class="nav-section">Ana Menü</div>
-    <div class="nav-item active" onclick="showPage('dashboard')"><span class="icon">📊</span> Dashboard</div>
-    <div class="nav-item" onclick="showPage('leads')"><span class="icon">👤</span> Leads <span class="nav-badge" id="lead-count-badge">0</span></div>
-    <div class="nav-item" onclick="showPage('customers')"><span class="icon">🏢</span> Müşteriler</div>
-    <div class="nav-item" onclick="showPage('pipeline')"><span class="icon">📈</span> Pipeline</div>
-
-    <div class="nav-section">Araçlar</div>
-    <div class="nav-item" onclick="openScanModal()"><span class="icon">🗺️</span> Harita Tarama</div>
-    <div class="nav-item" onclick="showPage('playbooks')"><span class="icon">📚</span> Playbooks</div>
-    <div class="nav-item" onclick="showPage('roi')"><span class="icon">💰</span> ROI Hesapla</div>
-    <div class="nav-item" onclick="showPage('pitch')"><span class="icon">📝</span> Pitch Scripts</div>
-
-    <div class="nav-section">Yönetim</div>
-    <div class="nav-item" onclick="showPage('contracts')"><span class="icon">📄</span> Sözleşmeler</div>
-    <div class="nav-item" onclick="showPage('revenue')"><span class="icon">🎯</span> Gelir Planı</div>
-    <div class="nav-item" onclick="showPage('board')"><span class="icon">🏛️</span> Board Meeting</div>
-    <div class="nav-item" onclick="showPage('projects')"><span class="icon">🔨</span> Projeler (MCP)</div>
-
-    <div class="nav-section">Sistem</div>
-    <div class="nav-item" onclick="showPage('settings')"><span class="icon">⚙️</span> Ayarlar</div>
-</nav>
-
-<!-- Main Content -->
-<main class="main">
-    <!-- Header -->
-    <div class="header">
-        <div>
-            <h2 id="page-title">Dashboard</h2>
-            <span style="font-size:12px;color:var(--text-muted)" id="last-updated">Son güncelleme: —</span>
-        </div>
-        <div class="header-actions">
-            <button class="btn btn-outline" onclick="refreshDashboard()">🔄 Yenile</button>
-            <button class="btn btn-primary" onclick="openScanModal()">🗺️ Yeni Tarama</button>
-        </div>
-    </div>
-
-    <!-- Dashboard Page -->
-    <div id="page-dashboard">
-        <!-- Stats -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label">Aylık Gelir (MRR)</div>
-                <div class="stat-value blue" id="stat-mrr">₺0</div>
-                <div class="stat-change up" id="stat-mrr-change">↑ Yükleniyor...</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Aktif Müşteri</div>
-                <div class="stat-value green" id="stat-customers">0</div>
-                <div class="stat-change up">↑ Hedef: 20</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Pipeline Değeri</div>
-                <div class="stat-value yellow" id="stat-pipeline">₺0</div>
-                <div class="stat-change">Açık fırsatlar</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Lead Havuzu</div>
-                <div class="stat-value red" id="stat-leads">0</div>
-                <div class="stat-change" id="stat-hot-leads">🔥 0 sıcak lead</div>
-            </div>
+    <aside class="sidebar">
+        <div class="brand">
+            <h1>JARVIS</h1>
+            <p>Agency operator cockpit for Australia-first, global-English decision making.</p>
+            <div class="market-pill" id="current-market-pill">AU • Loading market</div>
         </div>
 
-        <!-- Hot Leads + Health Score -->
-        <div class="grid-2">
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">🔥 Sıcak Lead'ler (Skor ≥ 75)</span>
-                    <span class="card-action" onclick="showPage('leads')">Tümünü Gör →</span>
-                </div>
-                <table class="table">
-                    <thead><tr><th>İşletme</th><th>Sektör</th><th>Skor</th><th>Paket</th><th>Aksiyon</th></tr></thead>
-                    <tbody id="hot-leads-table">
-                        <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Yükleniyor...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="card" style="text-align:center">
-                <div class="card-header"><span class="card-title">🏥 Ajans Sağlık Skoru</span></div>
-                <div class="score-ring">
-                    <svg width="120" height="120">
-                        <circle cx="60" cy="60" r="52" fill="none" stroke="var(--border)" stroke-width="8"/>
-                        <circle cx="60" cy="60" r="52" fill="none" stroke="var(--accent)" stroke-width="8" 
-                                stroke-dasharray="327" stroke-dashoffset="327" stroke-linecap="round" id="health-ring"/>
-                    </svg>
-                    <div class="value" id="health-score">—</div>
-                </div>
-                <div style="font-size:12px;color:var(--text-muted)" id="health-label">Yükleniyor...</div>
-            </div>
+        <div class="nav-group">
+            <div class="nav-label">Operator Workflow</div>
+            <button class="nav-item active" data-page="cockpit"><span>◉</span><span>Cockpit</span></button>
+            <button class="nav-item" data-page="worklist"><span>◎</span><span>Candidate Worklist</span></button>
+            <button class="nav-item" data-page="playbooks"><span>◍</span><span>Playbooks</span></button>
+            <button class="nav-item" data-page="roi"><span>◌</span><span>ROI Models</span></button>
+            <button class="nav-item" data-page="delivery"><span>◐</span><span>Delivery Lane</span></button>
+            <button class="nav-item" data-page="settings"><span>◑</span><span>Settings</span></button>
         </div>
 
-        <!-- Pipeline + Activity -->
-        <div class="grid-equal">
-            <div class="card">
-                <div class="card-header"><span class="card-title">📈 Satış Pipeline</span></div>
-                <div class="pipeline" id="pipeline-stages">
-                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Yeni</div></div>
-                    <div class="pipeline-stage"><div class="count">—</div><div class="label">İletişim</div></div>
-                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Demo</div></div>
-                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Teklif</div></div>
-                    <div class="pipeline-stage"><div class="count">—</div><div class="label">Kazanıldı</div></div>
-                </div>
-            </div>
+        <div class="sidebar-note">
+            <strong>Phase 1 scope</strong>
+            Human-in-the-loop candidate evaluation, CRM-style workflow, and proposal intelligence. Full autonomous outreach and delivery stay downstream until decision quality is reliable.
+        </div>
+    </aside>
 
-            <div class="card">
-                <div class="card-header"><span class="card-title">⚡ Son Aktiviteler</span></div>
-                <div id="activity-feed">
-                    <div class="activity-item">
-                        <div class="activity-icon scan">🗺️</div>
-                        <div><div class="activity-text">Sistem başlatıldı</div><div class="activity-time">Şimdi</div></div>
+    <main class="main-shell">
+        <header class="topbar">
+            <div>
+                <h2 id="page-title">Operator Cockpit</h2>
+                <p id="page-subtitle">Discover candidates, compare them, save a decision, and hand the right opportunity into proposal workflow.</p>
+            </div>
+            <div class="topbar-actions">
+                <button class="button" id="refresh-button">Refresh Cockpit</button>
+                <button class="button secondary" id="chat-button">Open JARVIS Chat</button>
+                <button class="button primary" id="scan-button">Run Market Scan</button>
+            </div>
+        </header>
+
+        <section class="page active" id="page-cockpit">
+            <section class="hero-card">
+                <div>
+                    <h3>JARVIS helps you decide who to target, what to sell, and which proposal deserves immediate action.</h3>
+                    <p>
+                        This workspace is tuned for Australia first, but the commercial layer remains portable across global English-speaking markets.
+                        Search live candidates, plot them on the map, hover for public signals, click into one lead, and turn that analysis into a saved operator decision.
+                    </p>
+                    <div class="hero-actions">
+                        <button class="chip-button" onclick="runQuickPrompt('Find five coffee shops with very high ratings in Craigieburn, Melbourne')">Craigieburn coffee shops</button>
+                        <button class="chip-button" onclick="runQuickPrompt('Find five dental clinics in South Yarra, Melbourne with very high ratings')">South Yarra dental clinics</button>
+                        <button class="chip-button" onclick="runQuickPrompt('Which one should we invest in first?')">Compare current pool</button>
+                        <button class="chip-button" onclick="runQuickPrompt('Which one deserves a proposal now?')">Proposal shortlist</button>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <!-- Live Interactive Map -->
-        <div class="card" style="margin-top: 16px;">
-            <div class="card-header"><span class="card-title">🌍 Canlı Harita (Live Intelligence)</span></div>
-            <div id="map" style="height: 650px; width: 100%; border-radius: 8px; z-index: 1;"></div>
-        </div>
-
-        <!-- JARVIS Recommendations -->
-        <div class="card">
-            <div class="card-header"><span class="card-title">🤖 JARVIS Önerileri</span></div>
-            <div id="recommendations" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
-                <div style="padding:14px;background:var(--bg-primary);border-radius:8px;font-size:13px;">
-                    <div style="margin-bottom:6px">🗺️ <strong>Harita Taraması</strong></div>
-                    <div style="color:var(--text-muted)">Yeni lead'ler bulmak için bir bölge taraması başlatın</div>
+                <div class="hero-aside">
+                    <div class="mini-note">
+                        <strong>Three operator jobs</strong>
+                        <span>Discover and map candidates. Compare and decide. Convert selected opportunities into proposal-ready workflow records.</span>
+                    </div>
+                    <div class="mini-note">
+                        <strong>Current market profile</strong>
+                        <span id="market-summary-copy">Loading market assumptions…</span>
+                    </div>
+                    <div class="mini-note">
+                        <strong>Delivery lane</strong>
+                        <span>Proposal briefs feed downstream execution. MCP and build automation stay secondary until the decision engine is stable.</span>
+                    </div>
                 </div>
-                <div style="padding:14px;background:var(--bg-primary);border-radius:8px;font-size:13px;">
-                    <div style="margin-bottom:6px">📊 <strong>Lead Analizi</strong></div>
-                    <div style="color:var(--text-muted)">Mevcut lead'lerinizi puanlayın ve önceliklendirin</div>
+            </section>
+
+            <div class="context-ribbon">
+                <div>
+                    <strong id="pool-context-title">No live candidate pool loaded yet</strong>
+                    <span id="pool-context-copy">Use the chat or run a scan to populate the map and comparison panel.</span>
                 </div>
-                <div style="padding:14px;background:var(--bg-primary);border-radius:8px;font-size:13px;">
-                    <div style="margin-bottom:6px">🎯 <strong>Gelir Planı</strong></div>
-                    <div style="color:var(--text-muted)">6 aylık gelir yol haritanızı oluşturun</div>
-                </div>
+                <button class="button" onclick="clearSelectedLead()">Clear focus</button>
             </div>
-        </div>
-    </div>
 
-    <!-- Leads Page -->
-    <div id="page-leads" style="display:none">
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">👤 Tüm Lead'ler</span>
-                <div style="display:flex;gap:8px">
-                    <select id="filter-sector" onchange="loadLeads()" style="padding:6px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px;">
-                        <option value="">Tüm Sektörler</option>
-                        <option value="dental">Diş Kliniği</option>
-                        <option value="law_firm">Hukuk Bürosu</option>
-                        <option value="accounting">Muhasebe</option>
-                        <option value="gym">Spor Salonu</option>
-                        <option value="auto_gallery">Oto Galeri</option>
-                        <option value="construction">İnşaat</option>
-                    </select>
-                    <select id="filter-status" onchange="loadLeads()" style="padding:6px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px;">
-                        <option value="">Tüm Durumlar</option>
-                        <option value="new">Yeni</option>
-                        <option value="contacted">İletişime Geçildi</option>
-                        <option value="demo_scheduled">Demo Planlandı</option>
-                        <option value="proposal_sent">Teklif Gönderildi</option>
-                        <option value="won">Kazanıldı</option>
-                        <option value="lost">Kaybedildi</option>
-                    </select>
-                </div>
-            </div>
-            <table class="table">
-                <thead><tr><th>İşletme</th><th>Sektör</th><th>Şehir</th><th>Skor</th><th>Paket</th><th>Durum</th><th>Aksiyon</th></tr></thead>
-                <tbody id="all-leads-table">
-                    <tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Yükleniyor...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
+            <section class="stat-grid">
+                <article class="stat-card">
+                    <div class="label">Lead Database</div>
+                    <div class="value" id="stat-total-leads">0</div>
+                    <div class="note" id="stat-total-note">Saved leads in the database</div>
+                </article>
+                <article class="stat-card">
+                    <div class="label">Proposal Ready</div>
+                    <div class="value" id="stat-proposal-ready">0</div>
+                    <div class="note">Saved opportunities marked ready now</div>
+                </article>
+                <article class="stat-card">
+                    <div class="label">Invest Now</div>
+                    <div class="value" id="stat-invest-now">0</div>
+                    <div class="note">Operator decisions in active invest mode</div>
+                </article>
+                <article class="stat-card">
+                    <div class="label">Mapped Pool</div>
+                    <div class="value" id="stat-current-pool">0</div>
+                    <div class="note">Current live comparison set on the map</div>
+                </article>
+            </section>
 
-    <!-- Playbooks Page -->
-    <div id="page-playbooks" style="display:none">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;" id="playbooks-grid">
-        </div>
-    </div>
+            <section class="workspace">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Live Candidate Map</div>
+                            <div class="panel-subtitle">Chat results plot immediately as circular markers. Hover for details, click to focus one lead.</div>
+                        </div>
+                        <button class="button" onclick="loadMapData()">Reload map data</button>
+                    </div>
+                    <div id="map"></div>
+                    <div class="map-footer">
+                        <div class="legend">
+                            <span><i class="dot" style="background:#32d296"></i> high priority</span>
+                            <span><i class="dot" style="background:#f8b84f"></i> medium priority</span>
+                            <span><i class="dot" style="background:#ff7a7a"></i> lower priority</span>
+                            <span><i class="dot" style="background:#79b8ff"></i> focused lead</span>
+                        </div>
+                        <span id="map-footnote">Default map view loads around Melbourne until a live candidate pool is plotted.</span>
+                    </div>
+                </article>
 
-    <!-- ROI Page -->
-    <div id="page-roi" style="display:none">
-        <div class="card" style="max-width:600px">
-            <div class="card-header"><span class="card-title">💰 ROI Hesaplayıcı</span></div>
-            <div class="form-group">
-                <label>Sektör</label>
-                <select id="roi-sector" style="width:100%;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);">
-                    <option value="dental">Diş Kliniği</option>
-                    <option value="law_firm">Hukuk Bürosu</option>
-                    <option value="accounting">Muhasebe</option>
-                    <option value="gym">Spor Salonu</option>
-                    <option value="auto_gallery">Oto Galeri</option>
-                    <option value="construction">İnşaat</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Paket</label>
-                <select id="roi-package" style="width:100%;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);">
-                    <option value="Starter">Starter (3.000-8.000 TL)</option>
-                    <option value="Professional">Professional (8.000-15.000 TL)</option>
-                    <option value="Premium" selected>Premium (15.000-25.000 TL)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Aylık Müşteri Sayısı</label>
-                <input type="number" id="roi-customers" value="10" min="1" style="width:100%;padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);">
-            </div>
-            <button class="btn btn-primary" onclick="calculateROI()" style="width:100%;margin-top:8px">Hesapla</button>
-            <div id="roi-result" style="margin-top:16px"></div>
-        </div>
-    </div>
-
-    <!-- Other pages placeholder -->
-    <div id="page-customers" style="display:none"><div class="card"><div class="card-title">🏢 Müşteriler — API'den yükleniyor...</div></div></div>
-    <div id="page-pipeline" style="display:none"><div class="card"><div class="card-title">📈 Pipeline — API'den yükleniyor...</div></div></div>
-    <div id="page-pitch" style="display:none"><div class="card"><div class="card-title">📝 Pitch Scripts — API'den yükleniyor...</div></div></div>
-    <div id="page-contracts" style="display:none"><div class="card"><div class="card-title">📄 Sözleşmeler — API'den yükleniyor...</div></div></div>
-    <div id="page-revenue" style="display:none"><div class="card"><div class="card-title">🎯 Gelir Planı — API'den yükleniyor...</div></div></div>
-    <div id="page-board" style="display:none"><div class="card"><div class="card-title">🏛️ Board Meeting — API'den yükleniyor...</div></div></div>
-    <div id="page-projects" style="display:none"><div class="card"><div class="card-title">🔨 MCP Projeler — API'den yükleniyor...</div></div></div>
-    <div id="page-settings" style="display:none"><div class="card"><div class="card-title">⚙️ Ayarlar — API'den yükleniyor...</div></div></div>
-</main>
-
-<!-- Scan Modal -->
-<div class="modal-overlay" id="scan-modal">
-    <div class="modal">
-        <h3>🗺️ New Map Scan</h3>
-        <div class="form-group">
-            <label>Location (City + Country)</label>
-            <input type="text" id="scan-location" placeholder="Melbourne CBD, Australia" value="Melbourne CBD, Australia">
-        </div>
-        <div class="form-group">
-            <label>Sector</label>
-            <select id="scan-sector">
-                <option value="dental">Dental Clinic</option>
-                <option value="restaurant">Restaurant / Café</option>
-                <option value="law_firm">Law Firm</option>
-                <option value="accounting">Accounting / CPA</option>
-                <option value="gym">Gym / Fitness</option>
-                <option value="real_estate">Real Estate</option>
-                <option value="beauty_salon">Beauty Salon</option>
-                <option value="medical_clinic">Medical Clinic</option>
-                <option value="auto_gallery">Car Dealership</option>
-                <option value="construction">Construction</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Country Code</label>
-            <select id="scan-country">
-                <option value="au">🇦🇺 Australia (AU)</option>
-                <option value="us">🇺🇸 United States (US)</option>
-                <option value="gb">🇬🇧 United Kingdom (GB)</option>
-                <option value="ca">🇨🇦 Canada (CA)</option>
-                <option value="nz">🇳🇿 New Zealand (NZ)</option>
-                <option value="tr">🇹🇷 Türkiye (TR)</option>
-                <option value="de">🇩🇪 Germany (DE)</option>
-                <option value="fr">🇫🇷 France (FR)</option>
-                <option value="ae">🇦🇪 UAE (AE)</option>
-                <option value="sg">🇸🇬 Singapore (SG)</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Language</label>
-            <select id="scan-language">
-                <option value="en">English</option>
-                <option value="tr">Türkçe</option>
-                <option value="de">Deutsch</option>
-                <option value="fr">Français</option>
-                <option value="ar">العربية</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Max Results</label>
-            <select id="scan-max">
-                <option value="20">20 businesses</option>
-                <option value="50" selected>50 businesses</option>
-                <option value="100">100 businesses</option>
-            </select>
-        </div>
-        <div id="scan-status" style="display:none;padding:10px;background:var(--bg-primary);border-radius:8px;font-size:12px;color:var(--text-secondary);margin-top:8px;"></div>
-        <div class="form-actions">
-            <button class="btn btn-outline" onclick="closeScanModal()">Cancel</button>
-            <button class="btn btn-primary" id="scan-btn" onclick="startScan()">🚀 Start Scan</button>
-        </div>
-    </div>
-</div>
-
-<!-- JARVIS Chat -->
-<button class="jarvis-fab" onclick="toggleChat()">🤖</button>
-<div class="jarvis-chat" id="jarvis-chat">
-    <div class="jarvis-chat-header">
-        <div class="dot"></div>
-        <div><strong>JARVIS</strong><br><span style="font-size:11px;color:var(--text-muted)">AI Agency Assistant</span></div>
-    </div>
-    <div class="jarvis-chat-body" id="chat-body">
-        <div class="chat-msg jarvis">
-            <div class="chat-bubble">Merhaba! 👋 Ben JARVIS, AI ajans asistanınız. Size nasıl yardımcı olabilirim?<br><br>
-            Örnek komutlar:<br>
-            • "İzmir'de diş kliniklerini tara"<br>
-            • "ROI hesapla"<br>
-            • "Board meeting raporu"<br>
-            • "Gelir planı oluştur"</div>
-        </div>
-    </div>
-    <div class="jarvis-chat-input">
-        <input type="text" id="chat-input" placeholder="JARVIS'e bir şey sor..." onkeypress="if(event.key==='Enter')sendChat()">
-        <button onclick="sendChat()">➤</button>
-    </div>
-</div>
-
-<!-- Toast -->
-<div class="toast" id="toast"></div>
-
-<script>
-// ============================================
-// API Configuration
-// ============================================
-const API_BASE = 'http://localhost:8000';
-
-// ============================================
-// API Helper
-// ============================================
-async function api(endpoint, method = 'GET', body = null) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
-    if (body) opts.body = JSON.stringify(body);
-    try {
-        const res = await fetch(`${API_BASE}${endpoint}`, opts);
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
-        return await res.json();
-    } catch (e) {
-        console.error('API Error:', e);
-        return null;
-    }
-}
-
-// ============================================
-// Navigation
-// ============================================
-function showPage(page) {
-    document.querySelectorAll('[id^="page-"]').forEach(p => p.style.display = 'none');
-    document.getElementById(`page-${page}`).style.display = 'block';
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    event?.target?.closest?.('.nav-item')?.classList.add('active');
-
-    const titles = {
-        dashboard: 'Dashboard', leads: 'Lead Yönetimi', customers: 'Müşteriler',
-        pipeline: 'Satış Pipeline', playbooks: 'Playbooks', roi: 'ROI Hesaplayıcı',
-        pitch: 'Pitch Scripts', contracts: 'Sözleşmeler', revenue: 'Gelir Planı',
-        board: 'Board Meeting', projects: 'Projeler (MCP)', settings: 'Ayarlar'
-    };
-    document.getElementById('page-title').textContent = titles[page] || page;
-
-    if (page === 'leads') loadLeads();
-    if (page === 'playbooks') loadPlaybooks();
-}
-
-// ============================================
-// Dashboard
-// ============================================
-let dashboardMap;
-
-async function loadMapData() {
-    if (!dashboardMap) {
-        dashboardMap = L.map('map').setView([-37.8136, 144.9631], 13);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-            subdomains: 'abcd',
-            maxZoom: 20
-        }).addTo(dashboardMap);
-    }
-    
-    // Clear existing markers
-    dashboardMap.eachLayer((layer) => {
-        if (layer instanceof L.Marker) {
-            dashboardMap.removeLayer(layer);
-        }
-    });
-
-    const data = await api('/api/leads?limit=100');
-    if (data?.leads) {
-        let coords = [];
-        data.leads.forEach(l => {
-            if (l.latitude && l.longitude) {
-                const marker = L.marker([l.latitude, l.longitude]).addTo(dashboardMap);
-                const popupStr = `
-                    <div style="font-family:Inter; color:#333; min-width: 150px;">
-                        <h4 style="margin:0 0 5px 0;">${l.business_name}</h4>
-                        <div style="font-size: 11px; margin-bottom: 5px;">${l.sector} • ${l.city}</div>
-                        <div style="display:flex; justify-content: space-between; align-items:center;">
-                            <b>Score: <span style="color:${l.score >= 75 ? 'red' : 'orange'}">${l.score}/100</span></b>
-                            <span style="background:#ddd; padding: 2px 5px; border-radius:3px; font-size:10px;">${l.package_recommendation||'N/A'}</span>
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Selected Candidate</div>
+                            <div class="panel-subtitle">Structured analysis, workflow state, and proposal brief for the currently focused lead.</div>
                         </div>
                     </div>
-                `;
-                marker.bindPopup(popupStr);
-                coords.push([l.latitude, l.longitude]);
+                    <div class="candidate-shell" id="candidate-panel"></div>
+                </article>
+            </section>
+
+            <section class="lower-grid">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Candidate Comparison</div>
+                            <div class="panel-subtitle">This is the current pooled analysis across mapped results. Click any row to focus that business.</div>
+                        </div>
+                        <button class="button" onclick="refreshComparison()">Re-run comparison</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Candidate</th>
+                                    <th>Investment</th>
+                                    <th>Platform</th>
+                                    <th>Service</th>
+                                    <th>Proposal</th>
+                                </tr>
+                            </thead>
+                            <tbody id="comparison-table">
+                                <tr>
+                                    <td colspan="5" style="color:var(--muted)">No live candidate pool yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Workflow Snapshot</div>
+                            <div class="panel-subtitle">Recent saved decisions and current operator state.</div>
+                        </div>
+                    </div>
+                    <div class="summary-grid" id="workflow-summary">
+                        <div class="summary-box">
+                            <div class="label">Invest</div>
+                            <div class="metric" id="summary-invest">0</div>
+                        </div>
+                        <div class="summary-box">
+                            <div class="label">Monitor</div>
+                            <div class="metric" id="summary-monitor">0</div>
+                        </div>
+                        <div class="summary-box">
+                            <div class="label">Reject</div>
+                            <div class="metric" id="summary-reject">0</div>
+                        </div>
+                    </div>
+                    <div class="section-stack" id="recent-decisions-list">
+                        <div class="empty-state">No saved decisions yet. Focus a candidate, set a decision, and save it into the worklist.</div>
+                    </div>
+                </article>
+            </section>
+        </section>
+
+        <section class="page" id="page-worklist">
+            <div class="subpage-grid">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Candidate Worklist</div>
+                            <div class="panel-subtitle">Persistent operator decisions with next actions, owners, confidence, and follow-up dates.</div>
+                        </div>
+                        <button class="button" onclick="loadDecisionWorklist()">Refresh worklist</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Business</th>
+                                    <th>Status</th>
+                                    <th>Platform</th>
+                                    <th>Proposal</th>
+                                    <th>Owner</th>
+                                    <th>Next action</th>
+                                    <th>Follow-up</th>
+                                </tr>
+                            </thead>
+                            <tbody id="decision-worklist">
+                                <tr>
+                                    <td colspan="7" style="color:var(--muted)">Loading saved decisions…</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="page" id="page-playbooks">
+            <div class="subpage-grid">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Sector Playbooks</div>
+                            <div class="panel-subtitle">English-first strategic playbooks used to justify platform and service recommendations.</div>
+                        </div>
+                        <button class="button" onclick="loadPlaybooks()">Reload playbooks</button>
+                    </div>
+                    <div class="playbook-grid" id="playbook-grid"></div>
+                </article>
+            </div>
+        </section>
+
+        <section class="page" id="page-roi">
+            <div class="subpage-grid roi-layout">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">ROI Model</div>
+                            <div class="panel-subtitle">Commercial assumptions run through the active market profile.</div>
+                        </div>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field">
+                            <label>Market</label>
+                            <select id="roi-market"></select>
+                        </div>
+                        <div class="field">
+                            <label>Sector</label>
+                            <select id="roi-sector">
+                                <option value="dental">Dental</option>
+                                <option value="restaurant">Restaurant / Cafe</option>
+                                <option value="law_firm">Law Firm</option>
+                                <option value="accounting">Accounting</option>
+                                <option value="gym">Gym</option>
+                                <option value="real_estate">Real Estate</option>
+                                <option value="auto_gallery">Car Dealership</option>
+                                <option value="construction">Construction</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Package</label>
+                            <select id="roi-package">
+                                <option value="Starter">Starter</option>
+                                <option value="Professional" selected>Professional</option>
+                                <option value="Premium">Premium</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Current monthly customers</label>
+                            <input type="number" id="roi-customers" min="1" value="20">
+                        </div>
+                        <button class="button primary" onclick="calculateROI()">Run ROI model</button>
+                    </div>
+                </article>
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">ROI Output</div>
+                            <div class="panel-subtitle">Use this as proposal support, not as a guaranteed forecast.</div>
+                        </div>
+                    </div>
+                    <div id="roi-summary" class="empty-state">Run the model to view market-aware cost, revenue, and payback estimates.</div>
+                    <div class="roi-result" id="roi-result-grid"></div>
+                </article>
+            </div>
+        </section>
+
+        <section class="page" id="page-delivery">
+            <div class="subpage-grid">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Downstream Delivery Lane</div>
+                            <div class="panel-subtitle">This is intentionally secondary to the decision engine in the current phase.</div>
+                        </div>
+                    </div>
+                    <div class="delivery-grid">
+                        <div class="card-tile">
+                            <div style="font-size:30px">1</div>
+                            <h4>Decision first</h4>
+                            <p>JARVIS should first decide who is worth pursuing, what the gaps are, and what commercial motion makes sense.</p>
+                        </div>
+                        <div class="card-tile">
+                            <div style="font-size:30px">2</div>
+                            <h4>Proposal handoff</h4>
+                            <p>The saved candidate decision and proposal brief become the structured brief for downstream build, automation, or CRM execution.</p>
+                        </div>
+                        <div class="card-tile">
+                            <div style="font-size:30px">3</div>
+                            <h4>Delivery later</h4>
+                            <p>Full outreach automation, Telegram/voice parity, and autonomous delivery remain intentionally deferred until operator trust is high.</p>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="page" id="page-settings">
+            <div class="subpage-grid">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Market Configuration</div>
+                            <div class="panel-subtitle">Presentation locale, commercial assumptions, and outreach defaults are separated from sector logic.</div>
+                        </div>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="card-tile">
+                            <h4>Active market</h4>
+                            <p>Choose the commercial market that should drive currency, contract defaults, and pricing assumptions across the cockpit.</p>
+                            <div class="field" style="margin-top:12px">
+                                <label>Active market</label>
+                                <select id="settings-market-select"></select>
+                            </div>
+                            <button class="button primary" style="margin-top:12px" onclick="applyMarketSelection()">Apply market</button>
+                        </div>
+                        <div class="card-tile">
+                            <h4>Contract defaults</h4>
+                            <div id="contract-defaults-copy">Loading…</div>
+                        </div>
+                        <div class="card-tile">
+                            <h4>Outreach defaults</h4>
+                            <div id="outreach-defaults-copy">Loading…</div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <div class="modal-overlay" id="scan-modal">
+        <div class="modal">
+            <h3>Run a market scan</h3>
+            <p>Use this when you want a broader dataset saved into the lead database. For immediate map plotting and comparison, the chat search remains the fastest path.</p>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Location</label>
+                    <input type="text" id="scan-location" value="Melbourne, Australia" placeholder="Melbourne, Australia">
+                </div>
+                <div class="field">
+                    <label>Sector</label>
+                    <select id="scan-sector">
+                        <option value="dental">Dental Clinic</option>
+                        <option value="restaurant">Restaurant / Cafe</option>
+                        <option value="law_firm">Law Firm</option>
+                        <option value="accounting">Accounting</option>
+                        <option value="gym">Gym</option>
+                        <option value="real_estate">Real Estate</option>
+                        <option value="beauty_salon">Beauty Salon</option>
+                        <option value="medical_clinic">Medical Clinic</option>
+                        <option value="auto_gallery">Car Dealership</option>
+                        <option value="construction">Construction</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Country</label>
+                    <select id="scan-country">
+                        <option value="au">Australia</option>
+                        <option value="us">United States</option>
+                        <option value="gb">United Kingdom</option>
+                        <option value="nz">New Zealand</option>
+                        <option value="ca">Canada</option>
+                        <option value="tr">Turkey</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Language</label>
+                    <select id="scan-language">
+                        <option value="en">English</option>
+                        <option value="tr">Turkish</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Max results</label>
+                    <select id="scan-max">
+                        <option value="20">20</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
+            <div class="scan-status" id="scan-status"></div>
+            <div class="modal-actions">
+                <button class="button" onclick="closeScanModal()">Cancel</button>
+                <button class="button primary" id="scan-submit-button" onclick="startScan()">Start scan</button>
+            </div>
+        </div>
+    </div>
+
+    <button class="chat-toggle" onclick="toggleChat()">J</button>
+    <div class="chat-dock" id="chat-dock">
+        <div class="chat-header">
+            <div>
+                <strong>JARVIS</strong>
+                <span>Decision-first operator assistant</span>
+            </div>
+            <button class="button" style="padding:8px 10px" onclick="toggleChat()">Close</button>
+        </div>
+        <div class="chat-context" id="chat-context">
+            <div class="chat-context-copy" id="chat-context-copy"></div>
+            <button class="button" style="padding:8px 10px" onclick="clearSelectedLead()">Clear focus</button>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="chat-msg jarvis">
+                <div class="chat-bubble">Ask for businesses in a suburb, compare the current candidate pool, or ask what platform and proposal makes sense for the selected lead.</div>
+            </div>
+        </div>
+        <div class="chat-input">
+            <input type="text" id="chat-input" placeholder="Ask JARVIS to find or compare candidates…" onkeypress="if(event.key==='Enter')sendChat()">
+            <button class="button primary" onclick="sendChat()">Send</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        const MARKET_OPTIONS = [
+            { code: 'AU', label: 'Australia' },
+            { code: 'US', label: 'United States' },
+            { code: 'GB', label: 'United Kingdom' },
+            { code: 'NZ', label: 'New Zealand' },
+            { code: 'TR', label: 'Turkey' },
+        ];
+
+        const state = {
+            marketCode: 'AU',
+            marketProfile: null,
+            dashboardMap: null,
+            dbLeadLayer: null,
+            chatResultLayer: null,
+            chatMarkers: {},
+            currentPool: [],
+            currentComparison: null,
+            selectedLead: null,
+            mapRegistry: {},
+            decisionCache: {},
+        };
+
+        async function api(endpoint, method = 'GET', body = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (body) options.body = JSON.stringify(body);
+
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, options);
+                if (!response.ok) {
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('API error', error);
+                return null;
             }
-        });
-        
-        if (coords.length > 0) {
-            dashboardMap.fitBounds(coords, {padding: [30, 30]});
         }
-    }
-}
 
-async function refreshDashboard() {
-    document.getElementById('last-updated').textContent = `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}`;
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
-    // Stats
-    const stats = await api('/api/dashboard/stats');
-    if (stats) {
-        document.getElementById('stat-leads').textContent = stats.total_leads;
-        document.getElementById('stat-customers').textContent = stats.active_customers;
-        document.getElementById('stat-hot-leads').textContent = `🔥 ${stats.hot_leads} sıcak lead`;
-        document.getElementById('lead-count-badge').textContent = stats.total_leads;
-    }
+        function marketFlag(code) {
+            return {
+                AU: 'AU',
+                US: 'US',
+                GB: 'UK',
+                NZ: 'NZ',
+                TR: 'TR'
+            }[code] || code;
+        }
 
-    // Pipeline
-    const pipeline = await api('/api/dashboard/pipeline');
-    if (pipeline?.pipeline) {
-        const p = pipeline.pipeline;
-        const stages = document.getElementById('pipeline-stages');
-        stages.innerHTML = `
-            <div class="pipeline-stage"><div class="count">${p.new||0}</div><div class="label">Yeni</div></div>
-            <div class="pipeline-stage"><div class="count">${p.contacted||0}</div><div class="label">İletişim</div></div>
-            <div class="pipeline-stage"><div class="count">${p.demo_scheduled||0}</div><div class="label">Demo</div></div>
-            <div class="pipeline-stage"><div class="count">${p.proposal_sent||0}</div><div class="label">Teklif</div></div>
-            <div class="pipeline-stage"><div class="count">${p.won||0}</div><div class="label">Kazanıldı</div></div>
-        `;
-    }
+        function formatCurrency(amount) {
+            const profile = state.marketProfile || { presentation_locale: 'en-AU', currency_code: 'AUD' };
+            return new Intl.NumberFormat(profile.presentation_locale, {
+                style: 'currency',
+                currency: profile.currency_code,
+                maximumFractionDigits: 0
+            }).format(Number(amount || 0));
+        }
 
-    // Hot leads
-    const leads = await api('/api/leads?min_score=75&limit=5');
-    if (leads?.leads) {
-        const tbody = document.getElementById('hot-leads-table');
-        if (leads.leads.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Henüz sıcak lead yok. Harita taraması başlatın!</td></tr>';
-        } else {
-            tbody.innerHTML = leads.leads.map(l => `
-                <tr>
-                    <td><strong>${l.business_name}</strong></td>
-                    <td>${l.sector || '—'}</td>
-                    <td><strong style="color:var(--danger)">${l.score}</strong>/100</td>
-                    <td><span class="badge badge-${(l.package_recommendation||'').toLowerCase()}">${l.package_recommendation||'—'}</span></td>
-                    <td><button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="analyzeLead(${l.id})">Analiz</button></td>
+        function proposalPillClass(readiness) {
+            if (readiness === 'Ready now') return 'success';
+            if (readiness === 'Needs qualification') return 'warning';
+            return 'danger';
+        }
+
+        function decisionPillClass(status) {
+            if (status === 'invest') return 'success';
+            if (status === 'monitor') return 'warning';
+            return 'danger';
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            window.clearTimeout(showToast._timer);
+            showToast._timer = window.setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2800);
+        }
+
+        function bindNavigation() {
+            document.querySelectorAll('.nav-item').forEach(button => {
+                button.addEventListener('click', () => showPage(button.dataset.page));
+            });
+        }
+
+        function showPage(page) {
+            document.querySelectorAll('.page').forEach(node => node.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(node => node.classList.remove('active'));
+            document.getElementById(`page-${page}`).classList.add('active');
+            document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
+
+            const titles = {
+                cockpit: ['Operator Cockpit', 'Compare candidates, focus one lead, and move it into proposal workflow.'],
+                worklist: ['Candidate Worklist', 'Persistent operator decisions with notes, owners, and follow-up actions.'],
+                playbooks: ['Sector Playbooks', 'Playbooks explain what to sell and why, without hardcoding one country into the product.'],
+                roi: ['ROI Models', 'Use market-aware package assumptions to frame proposal economics.'],
+                delivery: ['Delivery Lane', 'Structured briefs go downstream only after the decision is clear.'],
+                settings: ['Settings', 'Market configuration controls pricing, contract defaults, and outreach assumptions.']
+            };
+            document.getElementById('page-title').textContent = titles[page][0];
+            document.getElementById('page-subtitle').textContent = titles[page][1];
+
+            if (page === 'worklist') loadDecisionWorklist();
+            if (page === 'playbooks') loadPlaybooks();
+            if (page === 'settings') renderSettings();
+        }
+
+        function populateMarketSelect(selectId) {
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            select.innerHTML = MARKET_OPTIONS.map(option => `
+                <option value="${option.code}" ${option.code === state.marketCode ? 'selected' : ''}>${option.label}</option>
+            `).join('');
+        }
+
+        async function loadMarketProfile(marketCode = state.marketCode) {
+            const result = await api(`/api/market-config?market_code=${marketCode}`);
+            if (!result?.market_profile) return;
+
+            state.marketCode = result.market_profile.market_code;
+            state.marketProfile = result.market_profile;
+            document.getElementById('current-market-pill').textContent = `${marketFlag(state.marketCode)} • ${state.marketProfile.market_name}`;
+            document.getElementById('market-summary-copy').textContent =
+                `${state.marketProfile.currency_code}, ${state.marketProfile.presentation_locale}, outreach via ${state.marketProfile.outreach_defaults.join(', ')}.`;
+
+            document.getElementById('scan-country').value = state.marketCode.toLowerCase();
+            populateMarketSelect('roi-market');
+            populateMarketSelect('settings-market-select');
+            renderSettings();
+        }
+
+        function applyMarketSelection() {
+            const value = document.getElementById('settings-market-select').value;
+            setMarketCode(value);
+        }
+
+        async function setMarketCode(code) {
+            await loadMarketProfile(code);
+            await refreshCockpit();
+            showToast(`Switched market context to ${state.marketProfile.market_name}`, 'success');
+        }
+
+        function ensureMap() {
+            if (state.dashboardMap) return;
+            state.dashboardMap = L.map('map').setView([-37.8136, 144.9631], 11);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(state.dashboardMap);
+            state.dbLeadLayer = L.layerGroup().addTo(state.dashboardMap);
+            state.chatResultLayer = L.layerGroup().addTo(state.dashboardMap);
+        }
+
+        function normalizeStoredLead(lead) {
+            const score = Number(lead.score || 0);
+            return {
+                lead_key: `db-${lead.id}`,
+                id: lead.id,
+                name: lead.business_name || 'Unknown business',
+                sector: lead.sector || 'business',
+                phone: lead.phone || '',
+                website: lead.website || '',
+                rating: Number(lead.google_rating || 0),
+                review_count: Number(lead.review_count || 0),
+                score,
+                raw_address: [lead.district, lead.city].filter(Boolean).join(', '),
+                latitude: Number(lead.latitude || 0),
+                longitude: Number(lead.longitude || 0),
+                market_code: state.marketCode,
+                package_recommendation: lead.package_recommendation || 'Starter'
+            };
+        }
+
+        function markerStyle(lead, source = 'chat', selected = false) {
+            if (selected) {
+                return {
+                    radius: 12,
+                    color: '#79b8ff',
+                    weight: 2,
+                    fillColor: '#79b8ff',
+                    fillOpacity: 0.95
+                };
+            }
+
+            const score = Number(source === 'chat' ? lead.investment_score : lead.score || 0);
+            const fillColor = score >= 78 ? '#32d296' : score >= 62 ? '#f8b84f' : '#ff7a7a';
+            return {
+                radius: source === 'chat' ? 10 : 7,
+                color: fillColor,
+                weight: source === 'chat' ? 2 : 1,
+                fillColor,
+                fillOpacity: source === 'chat' ? 0.9 : 0.56
+            };
+        }
+
+        function leadTooltip(lead, source = 'chat') {
+            const score = Number(source === 'chat' ? lead.investment_score : lead.score || 0);
+            const scoreLabel = source === 'chat' ? 'Investment' : 'Lead';
+            const detail = lead.shortcomings?.[0] || lead.fit_summary || lead.platform_reason || 'No extra context yet.';
+            return `
+                <div style="min-width:240px;font-family:Manrope,sans-serif;">
+                    <div style="font-weight:800;font-size:14px;margin-bottom:4px">${escapeHtml(lead.name)}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">${escapeHtml(lead.raw_address || 'Address unavailable')}</div>
+                    <div style="font-size:12px;margin-bottom:4px">${lead.rating ? Number(lead.rating).toFixed(1) : '—'}★ • ${Number(lead.review_count || 0)} reviews</div>
+                    <div style="font-size:12px;margin-bottom:4px">${scoreLabel} score <strong>${score}/100</strong></div>
+                    <div style="font-size:11px;color:#c9d5df;line-height:1.5">${escapeHtml(detail)}</div>
+                </div>
+            `;
+        }
+
+        function leadPopup(lead, source = 'chat') {
+            const score = Number(source === 'chat' ? lead.investment_score : lead.score || 0);
+            const website = lead.website ? `<div style="margin-top:6px;font-size:11px">Website: ${escapeHtml(lead.website)}</div>` : '';
+            const phone = lead.phone ? `<div style="margin-top:6px;font-size:11px">Phone: ${escapeHtml(lead.phone)}</div>` : '';
+            return `
+                <div style="min-width:280px;font-family:Manrope,sans-serif;color:#041017">
+                    <div style="font-size:16px;font-weight:800;margin-bottom:4px">${escapeHtml(lead.name)}</div>
+                    <div style="font-size:12px;color:#516273;margin-bottom:8px">${escapeHtml(lead.raw_address || 'Address unavailable')}</div>
+                    <div style="font-size:12px;margin-bottom:6px">${lead.rating ? Number(lead.rating).toFixed(1) : '—'}★ • ${Number(lead.review_count || 0)} reviews • Score ${score}/100</div>
+                    <div style="font-size:12px;margin-bottom:6px"><strong>Platform:</strong> ${escapeHtml(lead.platform_type || 'TBD')}</div>
+                    <div style="font-size:12px;margin-bottom:6px"><strong>Proposal:</strong> ${escapeHtml(lead.proposal_recommendation || 'Not assessed yet')}</div>
+                    ${phone}
+                    ${website}
+                    <button onclick="focusLeadFromMap('${escapeHtml(lead.lead_key)}')" style="margin-top:10px;background:#0f6f68;border:none;border-radius:10px;color:#fff;padding:8px 10px;cursor:pointer;font-size:12px;font-weight:700">Focus this candidate</button>
+                </div>
+            `;
+        }
+
+        function updateMarkerStates() {
+            Object.entries(state.chatMarkers).forEach(([leadKey, marker]) => {
+                const lead = state.mapRegistry[leadKey];
+                marker.setStyle(markerStyle(lead, 'chat', state.selectedLead?.lead_key === leadKey));
+            });
+        }
+
+        async function setSelectedLead(lead, options = {}) {
+            if (!lead) return;
+            state.selectedLead = lead;
+            state.mapRegistry[lead.lead_key] = lead;
+            updateMarkerStates();
+            updateContextRibbon();
+
+            if (options.fit !== false && state.chatMarkers[lead.lead_key]) {
+                state.dashboardMap.panTo(state.chatMarkers[lead.lead_key].getLatLng(), { animate: true, duration: 0.7 });
+                state.chatMarkers[lead.lead_key].openPopup();
+            }
+
+            if (options.announce !== false) {
+                showToast(`Focused on ${lead.name}`, 'success');
+            }
+
+            const decision = await loadDecisionForLead(lead.lead_key);
+            renderCandidatePanel(lead, decision);
+            const proposal = await loadProposalBrief(lead);
+            renderProposalBrief(proposal);
+            updateChatContext();
+            highlightComparisonRow(lead.lead_key);
+        }
+
+        function clearSelectedLead() {
+            state.selectedLead = null;
+            updateMarkerStates();
+            updateContextRibbon();
+            updateChatContext();
+            highlightComparisonRow(null);
+            renderCandidatePanel(null, null);
+        }
+
+        function focusLeadFromMap(leadKey) {
+            const lead = state.mapRegistry[leadKey];
+            if (lead) setSelectedLead(lead, { fit: true, announce: true });
+        }
+
+        function plotDatabaseLeads(leads) {
+            ensureMap();
+            state.dbLeadLayer.clearLayers();
+            const bounds = [];
+            leads.forEach(raw => {
+                if (!raw.latitude || !raw.longitude) return;
+                const lead = normalizeStoredLead(raw);
+                state.mapRegistry[lead.lead_key] = lead;
+                bounds.push([lead.latitude, lead.longitude]);
+                const marker = L.circleMarker([lead.latitude, lead.longitude], markerStyle(lead, 'db')).addTo(state.dbLeadLayer);
+                marker.bindTooltip(leadTooltip(lead, 'db'), { sticky: true, direction: 'top', opacity: 0.96 });
+                marker.bindPopup(leadPopup(lead, 'db'));
+                marker.on('click', () => setSelectedLead(lead, { fit: false, announce: true }));
+            });
+            if (bounds.length && state.currentPool.length === 0) {
+                state.dashboardMap.fitBounds(bounds, { padding: [40, 40] });
+            }
+        }
+
+        function plotChatResults(leads, options = {}) {
+            ensureMap();
+            state.chatResultLayer.clearLayers();
+            state.chatMarkers = {};
+            state.currentPool = (leads || []).filter(lead => lead.latitude && lead.longitude);
+
+            const bounds = [];
+            state.currentPool.forEach(lead => {
+                state.mapRegistry[lead.lead_key] = lead;
+                bounds.push([lead.latitude, lead.longitude]);
+                const marker = L.circleMarker([lead.latitude, lead.longitude], markerStyle(lead, 'chat')).addTo(state.chatResultLayer);
+                state.chatMarkers[lead.lead_key] = marker;
+                marker.bindTooltip(leadTooltip(lead, 'chat'), { sticky: true, direction: 'top', opacity: 0.98 });
+                marker.bindPopup(leadPopup(lead, 'chat'));
+                marker.on('click', () => setSelectedLead(lead, { fit: false, announce: true }));
+            });
+
+            if (bounds.length && options.fitBounds !== false) {
+                state.dashboardMap.fitBounds(bounds, { padding: [48, 48] });
+            }
+
+            const preferredLead = options.selectedLeadKey
+                ? state.currentPool.find(lead => lead.lead_key === options.selectedLeadKey)
+                : state.currentPool.find(lead => lead.lead_key === state.selectedLead?.lead_key) || state.currentPool[0];
+
+            if (preferredLead) {
+                setSelectedLead(preferredLead, { fit: false, announce: false });
+            } else {
+                clearSelectedLead();
+            }
+
+            document.getElementById('stat-current-pool').textContent = String(state.currentPool.length);
+            updateMarkerStates();
+            updateContextRibbon();
+        }
+
+        async function loadMapData() {
+            ensureMap();
+            const data = await api('/api/leads?limit=150');
+            if (data?.leads) {
+                plotDatabaseLeads(data.leads);
+            }
+        }
+
+        function updateContextRibbon() {
+            const title = document.getElementById('pool-context-title');
+            const copy = document.getElementById('pool-context-copy');
+            const top = state.currentComparison?.top_recommendation?.name;
+
+            if (!state.currentPool.length) {
+                title.textContent = 'No live candidate pool loaded yet';
+                copy.textContent = 'Use the chat or run a scan to populate the map and comparison panel.';
+                document.getElementById('map-footnote').textContent = 'Default map view loads around Melbourne until a live candidate pool is plotted.';
+                return;
+            }
+
+            title.textContent = `${state.currentPool.length} mapped candidates in the live pool`;
+            if (state.selectedLead) {
+                copy.textContent = `Focused candidate: ${state.selectedLead.name}. ${top ? `Current top recommendation: ${top}.` : ''}`;
+            } else {
+                copy.textContent = top
+                    ? `Current top recommendation: ${top}. Click a row or marker to focus a candidate.`
+                    : 'Click a row or marker to focus a candidate.';
+            }
+            document.getElementById('map-footnote').textContent = 'Hover markers for context, click to focus one lead, and save the operator decision in the panel on the right.';
+        }
+
+        function highlightComparisonRow(leadKey) {
+            document.querySelectorAll('#comparison-table tr').forEach(row => {
+                row.classList.toggle('active', row.dataset.leadKey === leadKey);
+            });
+        }
+
+        async function loadProposalBrief(lead) {
+            const result = await api('/api/candidates/proposal', 'POST', {
+                candidate: lead,
+                market_code: state.marketCode
+            });
+            return result;
+        }
+
+        async function loadDecisionForLead(leadKey) {
+            const result = await api(`/api/candidates/decision/${leadKey}`);
+            if (result?.lead_key) {
+                state.decisionCache[leadKey] = result;
+                return result;
+            }
+            return null;
+        }
+
+        function renderCandidatePanel(lead, decision = null) {
+            const panel = document.getElementById('candidate-panel');
+            if (!lead) {
+                panel.innerHTML = `
+                    <div class="empty-state">
+                        Select a candidate from the map or comparison table.
+                        The panel will show public signals, gap scores, platform/service recommendations, and a saved decision form.
+                    </div>
+                `;
+                return;
+            }
+
+            const status = decision?.decision_status || 'monitor';
+            const owner = decision?.owner || '';
+            const nextAction = decision?.next_action || '';
+            const followUpDate = decision?.follow_up_date || '';
+            const confidence = decision?.confidence ?? 60;
+            const notes = decision?.operator_notes || '';
+            const recommendedPlatform = decision?.recommended_platform || lead.platform_type;
+            const recommendedService = decision?.recommended_service || lead.recommended_service_type;
+            const proposalRecommended = decision ? Boolean(decision.proposal_recommended) : lead.proposal_readiness === 'Ready now';
+
+            panel.innerHTML = `
+                <section>
+                    <div class="pill ${proposalPillClass(lead.proposal_readiness)}">${escapeHtml(lead.proposal_readiness)}</div>
+                    <div class="candidate-name" style="margin-top:12px">${escapeHtml(lead.name)}</div>
+                    <div class="candidate-meta">
+                        ${escapeHtml(lead.raw_address || 'Address unavailable')}<br>
+                        ${escapeHtml(lead.sector || 'business')} • ${lead.rating ? Number(lead.rating).toFixed(1) : '—'}★ • ${Number(lead.review_count || 0)} reviews
+                    </div>
+                </section>
+
+                <section class="score-strip">
+                    <div class="score-box">
+                        <div class="label">Investment</div>
+                        <div class="value">${lead.investment_score}/100</div>
+                    </div>
+                    <div class="score-box">
+                        <div class="label">Priority</div>
+                        <div class="value">${escapeHtml(lead.commercial_priority)}</div>
+                    </div>
+                    <div class="score-box">
+                        <div class="label">Service</div>
+                        <div class="value" style="font-size:17px">${escapeHtml(lead.recommended_service_type)}</div>
+                    </div>
+                </section>
+
+                <section class="section-stack">
+                    <h4>Decision summary</h4>
+                    <p>${escapeHtml(lead.fit_summary)}</p>
+                    <div class="detail-list">
+                        ${(lead.decision_trace || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+                    </div>
+                </section>
+
+                <section class="section-stack">
+                    <h4>Gap model</h4>
+                    <div class="gap-meter">
+                        ${renderGapRow('Acquisition gap', lead.gap_scores.acquisition_gap)}
+                        ${renderGapRow('Retention gap', lead.gap_scores.retention_gap)}
+                        ${renderGapRow('Conversion gap', lead.gap_scores.conversion_gap)}
+                        ${renderGapRow('Operations gap', lead.gap_scores.operations_gap)}
+                        ${renderGapRow('Visibility gap', lead.gap_scores.visibility_gap)}
+                    </div>
+                </section>
+
+                <section class="section-stack">
+                    <h4>Shortcomings and strengths</h4>
+                    <ul class="detail-list">
+                        ${(lead.shortcomings || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+                    </ul>
+                    <ul class="detail-list">
+                        ${(lead.strengths || []).map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+                    </ul>
+                </section>
+
+                <section class="section-stack">
+                    <h4>Proposal brief</h4>
+                    <div id="proposal-brief">
+                        <div class="empty-state">Loading structured proposal recommendation…</div>
+                    </div>
+                </section>
+
+                <section class="section-stack">
+                    <h4>Operator decision record</h4>
+                    <div class="form-grid two">
+                        <div class="field">
+                            <label>Decision status</label>
+                            <select id="decision-status">
+                                <option value="invest" ${status === 'invest' ? 'selected' : ''}>Invest</option>
+                                <option value="monitor" ${status === 'monitor' ? 'selected' : ''}>Monitor</option>
+                                <option value="reject" ${status === 'reject' ? 'selected' : ''}>Reject</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Proposal recommendation</label>
+                            <select id="decision-proposal">
+                                <option value="true" ${proposalRecommended ? 'selected' : ''}>Proposal recommended</option>
+                                <option value="false" ${!proposalRecommended ? 'selected' : ''}>Not yet</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-grid two">
+                        <div class="field">
+                            <label>Recommended platform</label>
+                            <input id="decision-platform" value="${escapeHtml(recommendedPlatform)}">
+                        </div>
+                        <div class="field">
+                            <label>Recommended service</label>
+                            <input id="decision-service" value="${escapeHtml(recommendedService)}">
+                        </div>
+                    </div>
+                    <div class="form-grid two">
+                        <div class="field">
+                            <label>Owner</label>
+                            <input id="decision-owner" value="${escapeHtml(owner)}" placeholder="Who owns the next action?">
+                        </div>
+                        <div class="field">
+                            <label>Follow-up date</label>
+                            <input id="decision-follow-up" type="date" value="${escapeHtml(followUpDate || '')}">
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Next action</label>
+                        <input id="decision-next-action" value="${escapeHtml(nextAction)}" placeholder="Example: send discovery proposal, book qualification call">
+                    </div>
+                    <div class="field">
+                        <label>Confidence</label>
+                        <input id="decision-confidence" type="range" min="0" max="100" value="${confidence}" oninput="updateConfidenceReadout(this.value)">
+                        <div class="range-readout" id="decision-confidence-readout">${confidence}/100</div>
+                    </div>
+                    <div class="field">
+                        <label>Operator notes</label>
+                        <textarea id="decision-notes" placeholder="Record decision rationale, objections, or context to carry into proposal workflow.">${escapeHtml(notes)}</textarea>
+                    </div>
+                    <button class="button primary" onclick="saveCurrentDecision()">Save operator decision</button>
+                </section>
+            `;
+        }
+
+        function renderProposalBrief(proposal) {
+            const mount = document.getElementById('proposal-brief');
+            if (!mount) return;
+            if (!proposal) {
+                mount.innerHTML = '<div class="empty-state">Proposal recommendation is currently unavailable.</div>';
+                return;
+            }
+            mount.innerHTML = `
+                <div class="mini-note">
+                    <strong>${escapeHtml(proposal.recommended_platform_type)}</strong>
+                    <span>${escapeHtml(proposal.fit_summary)}</span>
+                </div>
+                <div class="mini-note">
+                    <strong>Recommended service</strong>
+                    <span>${escapeHtml(proposal.recommended_service_type)}<br>${escapeHtml(proposal.recommended_delivery_shape)}</span>
+                </div>
+                <div class="mini-note">
+                    <strong>Commercial case</strong>
+                    <span>${escapeHtml(proposal.expected_business_outcome)}</span>
+                </div>
+                <div class="mini-note">
+                    <strong>Risk summary</strong>
+                    <span>${escapeHtml(proposal.risk_summary)}</span>
+                </div>
+            `;
+        }
+
+        function renderGapRow(label, value) {
+            return `
+                <div class="gap-row">
+                    <span>${escapeHtml(label)}</span>
+                    <div class="bar"><span style="width:${Number(value || 0)}%"></span></div>
+                    <strong>${Number(value || 0)}</strong>
+                </div>
+            `;
+        }
+
+        function updateConfidenceReadout(value) {
+            const node = document.getElementById('decision-confidence-readout');
+            if (node) node.textContent = `${value}/100`;
+        }
+
+        async function saveCurrentDecision() {
+            if (!state.selectedLead) {
+                showToast('Select a candidate first.', 'error');
+                return;
+            }
+
+            const payload = {
+                candidate: state.selectedLead,
+                decision_status: document.getElementById('decision-status').value,
+                recommended_platform: document.getElementById('decision-platform').value.trim(),
+                recommended_service: document.getElementById('decision-service').value.trim(),
+                proposal_recommended: document.getElementById('decision-proposal').value === 'true',
+                owner: document.getElementById('decision-owner').value.trim(),
+                next_action: document.getElementById('decision-next-action').value.trim(),
+                follow_up_date: document.getElementById('decision-follow-up').value || null,
+                confidence: Number(document.getElementById('decision-confidence').value),
+                operator_notes: document.getElementById('decision-notes').value.trim(),
+                market_code: state.marketCode
+            };
+
+            const result = await api('/api/candidates/decision', 'POST', payload);
+            if (!result?.lead_key) {
+                showToast('Could not save the decision record.', 'error');
+                return;
+            }
+
+            state.decisionCache[result.lead_key] = result;
+            await refreshStatsAndWorkflow();
+            await loadDecisionWorklist();
+            showToast(`Saved decision for ${state.selectedLead.name}`, 'success');
+        }
+
+        function renderComparison(comparison) {
+            state.currentComparison = comparison;
+            const body = document.getElementById('comparison-table');
+            if (!comparison?.ranked_candidates?.length) {
+                body.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="color:var(--muted)">No live candidate pool yet.</td>
+                    </tr>
+                `;
+                document.getElementById('stat-current-pool').textContent = '0';
+                updateContextRibbon();
+                return;
+            }
+
+            body.innerHTML = comparison.ranked_candidates.map(candidate => `
+                <tr data-lead-key="${escapeHtml(candidate.lead_key)}" onclick="focusLeadFromComparison('${escapeHtml(candidate.lead_key)}')">
+                    <td>
+                        <strong>${escapeHtml(candidate.name)}</strong><br>
+                        <span style="color:var(--muted);font-size:12px">${escapeHtml(candidate.raw_address || 'Address unavailable')}</span>
+                    </td>
+                    <td>
+                        <strong>${candidate.investment_score}/100</strong><br>
+                        <span style="color:var(--muted);font-size:12px">${escapeHtml(candidate.commercial_priority)}</span>
+                    </td>
+                    <td>${escapeHtml(candidate.platform_type)}</td>
+                    <td>${escapeHtml(candidate.recommended_service_type)}</td>
+                    <td><span class="pill ${proposalPillClass(candidate.proposal_readiness)}">${escapeHtml(candidate.proposal_readiness)}</span></td>
+                </tr>
+            `).join('');
+
+            document.getElementById('stat-current-pool').textContent = String(comparison.ranked_candidates.length);
+            updateContextRibbon();
+            if (state.selectedLead) highlightComparisonRow(state.selectedLead.lead_key);
+        }
+
+        function focusLeadFromComparison(leadKey) {
+            const lead = state.currentPool.find(candidate => candidate.lead_key === leadKey) || state.mapRegistry[leadKey];
+            if (lead) setSelectedLead(lead, { fit: true, announce: true });
+        }
+
+        async function refreshComparison() {
+            if (!state.currentPool.length) {
+                showToast('There is no live candidate pool to compare yet.', 'error');
+                return;
+            }
+            const comparison = await api('/api/candidates/compare', 'POST', {
+                candidates: state.currentPool,
+                market_code: state.marketCode
+            });
+            renderComparison(comparison);
+        }
+
+        async function refreshStatsAndWorkflow() {
+            const stats = await api('/api/dashboard/stats');
+            if (stats) {
+                document.getElementById('stat-total-leads').textContent = String(stats.total_leads || 0);
+                document.getElementById('stat-total-note').textContent = `${stats.saved_decisions || 0} saved operator decisions`;
+                document.getElementById('stat-proposal-ready').textContent = String(stats.proposal_ready || 0);
+                document.getElementById('stat-invest-now').textContent = String(stats.invest_now || 0);
+                if (stats.market_profile) {
+                    state.marketProfile = stats.market_profile;
+                }
+            }
+
+            const overview = await api('/api/dashboard/decision-overview');
+            if (overview?.overview) {
+                document.getElementById('summary-invest').textContent = String(overview.overview.invest || 0);
+                document.getElementById('summary-monitor').textContent = String(overview.overview.monitor || 0);
+                document.getElementById('summary-reject').textContent = String(overview.overview.reject || 0);
+                renderRecentDecisions(overview.recent || []);
+            }
+        }
+
+        function renderRecentDecisions(decisions) {
+            const mount = document.getElementById('recent-decisions-list');
+            if (!decisions.length) {
+                mount.innerHTML = '<div class="empty-state">No saved decisions yet. Focus a candidate, set a decision, and save it into the worklist.</div>';
+                return;
+            }
+            mount.innerHTML = decisions.map(decision => `
+                <div class="recent-decision" onclick="openDecisionRecord('${escapeHtml(decision.lead_key)}')" style="cursor:pointer">
+                    <strong>${escapeHtml(decision.lead_name)}</strong>
+                    <span>${escapeHtml(decision.decision_status || 'monitor')} • ${escapeHtml(decision.recommended_service || 'No service recorded')}</span>
+                    <span>${escapeHtml(decision.next_action || 'No next action recorded')}</span>
+                </div>
+            `).join('');
+        }
+
+        async function loadDecisionWorklist() {
+            const result = await api('/api/candidates/decisions?limit=100');
+            const body = document.getElementById('decision-worklist');
+            if (!result?.decisions?.length) {
+                body.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">No decisions saved yet.</td></tr>';
+                return;
+            }
+
+            result.decisions.forEach(decision => {
+                state.decisionCache[decision.lead_key] = decision;
+            });
+
+            body.innerHTML = result.decisions.map(decision => `
+                <tr onclick="openDecisionRecord('${escapeHtml(decision.lead_key)}')">
+                    <td><strong>${escapeHtml(decision.lead_name)}</strong><br><span style="color:var(--muted);font-size:12px">${escapeHtml(decision.raw_address || '')}</span></td>
+                    <td><span class="pill ${decisionPillClass(decision.decision_status)}">${escapeHtml(decision.decision_status || 'monitor')}</span></td>
+                    <td>${escapeHtml(decision.recommended_platform || '—')}</td>
+                    <td><span class="pill ${proposalPillClass(decision.proposal_readiness || 'Monitor')}">${escapeHtml(decision.proposal_readiness || 'Monitor')}</span></td>
+                    <td>${escapeHtml(decision.owner || '—')}</td>
+                    <td>${escapeHtml(decision.next_action || '—')}</td>
+                    <td>${escapeHtml(decision.follow_up_date || '—')}</td>
                 </tr>
             `).join('');
         }
-    }
-    
-    await loadMapData();
 
-    showToast('Dashboard güncellendi', 'success');
-}
-
-// ============================================
-// Leads
-// ============================================
-async function loadLeads() {
-    const sector = document.getElementById('filter-sector')?.value || '';
-    const status = document.getElementById('filter-status')?.value || '';
-    let url = '/api/leads?limit=50';
-    if (sector) url += `&sector=${sector}`;
-    if (status) url += `&status=${status}`;
-
-    const data = await api(url);
-    const tbody = document.getElementById('all-leads-table');
-    if (!data?.leads?.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Lead bulunamadı</td></tr>';
-        return;
-    }
-    tbody.innerHTML = data.leads.map(l => `
-        <tr>
-            <td><strong>${l.business_name}</strong></td>
-            <td>${l.sector||'—'}</td>
-            <td>${l.city||'—'} ${l.district||''}</td>
-            <td><strong style="color:${l.score>=75?'var(--danger)':l.score>=50?'var(--warning)':'var(--accent)'}">${l.score}</strong></td>
-            <td><span class="badge badge-${(l.package_recommendation||'starter').toLowerCase()}">${l.package_recommendation||'—'}</span></td>
-            <td>${l.status||'new'}</td>
-            <td>
-                <button class="btn btn-primary" style="padding:4px 8px;font-size:11px" onclick="analyzeLead(${l.id})">📊</button>
-                <button class="btn btn-outline" style="padding:4px 8px;font-size:11px" onclick="generatePitch(${l.id},'${l.business_name}','${l.sector}')">📝</button>
-            </td>
-        </tr>
-    `).join('');
-}
-
-// ============================================
-// Lead Analysis
-// ============================================
-async function analyzeLead(leadId) {
-    showToast('Lead analiz ediliyor...', 'success');
-    const lead = await api(`/api/leads/${leadId}`);
-    if (lead) {
-        const analysis = await api('/api/leads/analyze', 'POST', lead);
-        if (analysis) {
-            alert(`📊 Lead Analizi: ${lead.business_name}\n\nSkor: ${analysis.score.total_score}/100\nPaket: ${analysis.score.package_recommendation}\nROI: %${analysis.roi.roi_percent}\nGeri Ödeme: ${analysis.roi.payback_days} gün\nPlaybook: ${analysis.playbook}`);
+        async function openDecisionRecord(leadKey) {
+            const decision = state.decisionCache[leadKey] || await loadDecisionForLead(leadKey);
+            const candidate = decision?.analysis_snapshot || decision?.candidate_snapshot;
+            if (!candidate) {
+                showToast('Could not load the saved candidate snapshot.', 'error');
+                return;
+            }
+            showPage('cockpit');
+            if (!state.currentPool.find(item => item.lead_key === candidate.lead_key)) {
+                plotChatResults([candidate], { fitBounds: true, selectedLeadKey: candidate.lead_key });
+            }
+            await setSelectedLead(candidate, { fit: true, announce: false });
         }
-    }
-}
 
-// ============================================
-// Pitch Generation
-// ============================================
-async function generatePitch(leadId, name, sector) {
-    const result = await api('/api/pitch', 'POST', {
-        business_name: name, sector: sector, contact_person: 'Yetkili'
-    });
-    if (result?.scripts) {
-        alert(`📝 ${name} Pitch Scripts:\n\n${result.scripts.cold_call.substring(0, 500)}...`);
-    }
-}
+        async function loadPlaybooks() {
+            const result = await api('/api/playbooks');
+            const grid = document.getElementById('playbook-grid');
+            if (!result?.playbooks) {
+                grid.innerHTML = '<div class="empty-state">Playbooks are unavailable right now.</div>';
+                return;
+            }
 
-// ============================================
-// Playbooks
-// ============================================
-async function loadPlaybooks() {
-    const data = await api('/api/playbooks');
-    if (!data?.playbooks) return;
+            const icons = {
+                dental: '✦',
+                law_firm: '⚖',
+                accounting: '◫',
+                gym: '▲',
+                auto_gallery: '▣',
+                construction: '▤'
+            };
 
-    const grid = document.getElementById('playbooks-grid');
-    const icons = { dental:'🦷', law_firm:'⚖️', accounting:'📊', gym:'💪', auto_gallery:'🚗', construction:'🏗️' };
-    const names = { dental:'Diş Kliniği', law_firm:'Hukuk Bürosu', accounting:'Muhasebe', gym:'Spor Salonu', auto_gallery:'Oto Galeri', construction:'İnşaat' };
-
-    grid.innerHTML = Object.entries(data.playbooks).map(([key, pb]) => `
-        <div class="card" style="cursor:pointer" onclick="showPlaybookDetail('${key}')">
-            <div style="font-size:36px;margin-bottom:12px">${icons[key]||'📋'}</div>
-            <div style="font-size:15px;font-weight:600;margin-bottom:4px">${names[key]||key}</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">${pb.name}</div>
-            <div style="display:flex;justify-content:space-between;font-size:12px">
-                <span>📅 ${pb.duration_months} ay</span>
-                <span>🎯 %${pb.target_roi} ROI</span>
-                <span>📋 ${pb.strategy_count} strateji</span>
-            </div>
-        </div>
-    `).join('');
-}
-
-async function showPlaybookDetail(sector) {
-    const pb = await api(`/api/playbooks/${sector}`);
-    if (pb) {
-        alert(`📚 ${pb.name}\n\nStratejiler:\n${pb.strategies.map((s,i) => `${i+1}. ${s}`).join('\n')}\n\nSüre: ${pb.duration_months} ay\nHedef ROI: %${pb.target_roi}`);
-    }
-}
-
-// ============================================
-// ROI Calculator
-// ============================================
-async function calculateROI() {
-    const sector = document.getElementById('roi-sector').value;
-    const pkg = document.getElementById('roi-package').value;
-    const customers = parseInt(document.getElementById('roi-customers').value);
-
-    const result = await api('/api/roi', 'POST', {
-        sector, package: pkg, current_monthly_customers: customers
-    });
-
-    if (result) {
-        document.getElementById('roi-result').innerHTML = `
-            <div style="background:var(--bg-primary);border-radius:12px;padding:20px;margin-top:12px">
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                    <div><div style="font-size:11px;color:var(--text-muted)">AYLIK MALİYET</div><div style="font-size:20px;font-weight:700;color:var(--danger)">₺${result.monthly_cost.toLocaleString()}</div></div>
-                    <div><div style="font-size:11px;color:var(--text-muted)">AYLIK GELİR</div><div style="font-size:20px;font-weight:700;color:var(--success)">₺${result.monthly_revenue_generated.toLocaleString()}</div></div>
-                    <div><div style="font-size:11px;color:var(--text-muted)">ROI</div><div style="font-size:20px;font-weight:700;color:var(--accent)">%${result.roi_percent}</div></div>
-                    <div><div style="font-size:11px;color:var(--text-muted)">GERİ ÖDEME</div><div style="font-size:20px;font-weight:700;color:var(--warning)">${result.payback_days} gün</div></div>
-                    <div><div style="font-size:11px;color:var(--text-muted)">YENİ MÜŞTERİ/AY</div><div style="font-size:20px;font-weight:700">+${result.new_customers_per_month}</div></div>
-                    <div><div style="font-size:11px;color:var(--text-muted)">YILLIK NET KÂR</div><div style="font-size:20px;font-weight:700;color:var(--success)">₺${result.net_profit.toLocaleString()}</div></div>
+            grid.innerHTML = Object.entries(result.playbooks).map(([key, playbook]) => `
+                <div class="card-tile">
+                    <div style="font-size:34px">${icons[key] || '◈'}</div>
+                    <h4>${escapeHtml(playbook.name)}</h4>
+                    <p>${playbook.strategy_count} strategies • ${playbook.duration_months} months • target ROI ${playbook.target_roi}%</p>
                 </div>
-            </div>
-        `;
-    }
-}
-
-// ============================================
-// Scan
-// ============================================
-function openScanModal() { document.getElementById('scan-modal').classList.add('open'); }
-function closeScanModal() { document.getElementById('scan-modal').classList.remove('open'); }
-
-async function startScan() {
-    const location   = document.getElementById('scan-location').value.trim();
-    const sector     = document.getElementById('scan-sector').value;
-    const country    = document.getElementById('scan-country').value;
-    const language   = document.getElementById('scan-language').value;
-    const maxResults = parseInt(document.getElementById('scan-max').value);
-
-    if (!location) { showToast('Please enter a location', 'error'); return; }
-
-    // Show status, disable button
-    const btn    = document.getElementById('scan-btn');
-    const status = document.getElementById('scan-status');
-    btn.disabled = true;
-    btn.innerHTML = '⏳ Starting...';
-    status.style.display = 'block';
-    status.innerHTML = '⏳ Connecting to Apify Google Maps scraper...';
-
-    const result = await api('/api/v1/scan/start', 'POST', {
-        sector,
-        location,
-        country_code: country,
-        language,
-        max_results: maxResults,
-        wait_for_completion: false
-    });
-
-    btn.disabled = false;
-    btn.innerHTML = '🚀 Start Scan';
-
-    if (result && (result.scan_id || (result.scan && result.scan.run_id))) {
-        const runId = result.scan_id || result.scan.run_id;
-        status.innerHTML = `✅ Scan started! Run ID: <code>${runId}</code><br>Apify is scraping Google Maps. This takes 1–3 minutes.<br><br>📊 Polling every 15 seconds...`;
-        addActivity('scan', `${location} — ${sector} scan started (${maxResults} results)`);
-        showToast(`🗺️ Scanning ${location}...`, 'success');
-
-        // Auto-poll every 15s up to 3min and show results when done
-        let attempts = 0;
-        const poll = setInterval(async () => {
-            attempts++;
-            const s = await api(`/api/v1/scan/status/${runId}`);
-            if (!s) return;
-            status.innerHTML = `⏳ [${attempts * 15}s] Status: <strong>${s.status}</strong> — Run ID: ${runId}`;
-            if (s.status === 'COMPLETED' || s.status === 'SUCCEEDED') {
-                clearInterval(poll);
-                const res = await api(`/api/v1/scan/results/${runId}`);
-                if (res && res.leads) {
-                    const count = res.leads.length;
-                    const top   = res.leads.slice(0, 3).map(l => `• ${l.name} (${l.score}/100)`).join('<br>');
-                    status.innerHTML = `✅ Done! <strong>${count} businesses</strong> found in ${location}.<br><br><strong>Top results:</strong><br>${top}<br><br>Check Leads section for full list.`;
-                    showToast(`✅ Found ${count} businesses in ${location}!`, 'success');
-                    refreshDashboard();
-                }
-            } else if (['FAILED','ABORTED','TIMED-OUT'].includes(s.status)) {
-                clearInterval(poll);
-                status.innerHTML = `❌ Scan ${s.status}. Check your Apify token in .env`;
-                showToast('Scan failed — check API token', 'error');
-            }
-            if (attempts >= 12) clearInterval(poll); // stop after 3min
-        }, 15000);
-    } else {
-        status.innerHTML = '❌ Failed to start scan. Check: backend running at localhost:8000? APIFY_API_TOKEN set in .env?';
-        showToast('Scan failed to start', 'error');
-    }
-}
-
-// ============================================
-// JARVIS Chat
-// ============================================
-function toggleChat() {
-    document.getElementById('jarvis-chat').classList.toggle('open');
-}
-
-async function sendChat() {
-    const input = document.getElementById('chat-input');
-    const msg = input.value.trim();
-    if (!msg) return;
-
-    addChatMsg(msg, 'user');
-    input.value = '';
-
-    const result = await api('/api/command', 'POST', { command: msg });
-    if (result?.response) {
-        addChatMsg(result.response, 'jarvis');
-        
-        if (result.response.includes('Harita taraması')) {
-            openScanModal();
+            `).join('');
         }
 
-        // Play TTS audio
-        try {
-            const ttsRes = await fetch('http://localhost:8000/api/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: result.response })
+        async function calculateROI() {
+            const marketCode = document.getElementById('roi-market').value;
+            const result = await api('/api/roi', 'POST', {
+                sector: document.getElementById('roi-sector').value,
+                package: document.getElementById('roi-package').value,
+                current_monthly_customers: Number(document.getElementById('roi-customers').value),
+                market_code: marketCode
             });
-            if (ttsRes.ok) {
-                const blob = await ttsRes.blob();
-                const url = URL.createObjectURL(blob);
-                const audio = new Audio(url);
-                audio.play();
+
+            if (!result) {
+                showToast('ROI model failed.', 'error');
+                return;
             }
-        } catch (e) {
-            console.error("TTS output failed:", e);
+
+            document.getElementById('roi-summary').classList.add('hidden');
+            document.getElementById('roi-result-grid').innerHTML = `
+                <div class="roi-box">
+                    <div class="label">Monthly cost</div>
+                    <div class="value">${formatCurrency(result.monthly_cost)}</div>
+                </div>
+                <div class="roi-box">
+                    <div class="label">Monthly revenue</div>
+                    <div class="value">${formatCurrency(result.monthly_revenue_generated)}</div>
+                </div>
+                <div class="roi-box">
+                    <div class="label">Net profit</div>
+                    <div class="value">${formatCurrency(result.net_profit)}</div>
+                </div>
+                <div class="roi-box">
+                    <div class="label">ROI</div>
+                    <div class="value">${result.roi_percent}%</div>
+                </div>
+                <div class="roi-box">
+                    <div class="label">Payback</div>
+                    <div class="value">${result.payback_days} days</div>
+                </div>
+                <div class="roi-box">
+                    <div class="label">New customers</div>
+                    <div class="value">+${result.new_customers_per_month}</div>
+                </div>
+            `;
         }
-    } else {
-        addChatMsg('Bağlantı hatası. API sunucusunun çalıştığından emin olun.', 'jarvis');
-    }
-}
 
-function addChatMsg(text, sender) {
-    const body = document.getElementById('chat-body');
-    const msg = document.createElement('div');
-    msg.className = `chat-msg ${sender}`;
+        function renderSettings() {
+            if (!state.marketProfile) return;
+            document.getElementById('contract-defaults-copy').innerHTML = `
+                <p><strong>Jurisdiction</strong><br>${escapeHtml(state.marketProfile.contract_defaults.jurisdiction)}</p>
+                <p><strong>Governing law</strong><br>${escapeHtml(state.marketProfile.contract_defaults.governing_law)}</p>
+                <p><strong>Invoice terms</strong><br>${escapeHtml(state.marketProfile.contract_defaults.invoice_terms)}</p>
+            `;
+            document.getElementById('outreach-defaults-copy').innerHTML = `
+                <p>${state.marketProfile.outreach_defaults.map(item => `• ${escapeHtml(item)}`).join('<br>')}</p>
+            `;
+            populateMarketSelect('settings-market-select');
+        }
 
-    const bubble = document.createElement('div');
-    bubble.className = 'chat-bubble';
-    bubble.textContent = text;
+        function openScanModal() {
+            document.getElementById('scan-modal').classList.add('open');
+        }
 
-    msg.appendChild(bubble);
-    body.appendChild(msg);
-    body.scrollTop = body.scrollHeight;
-}
+        function closeScanModal() {
+            document.getElementById('scan-modal').classList.remove('open');
+            document.getElementById('scan-status').style.display = 'none';
+        }
 
-// ============================================
-// Utilities
-// ============================================
-function addActivity(type, text) {
-    const feed = document.getElementById('activity-feed');
-    const icons = { scan:'🗺️', deal:'✅', call:'📞', alert:'⚠️' };
-    const now = new Date().toLocaleTimeString('tr-TR');
-    feed.innerHTML = `
-        <div class="activity-item">
-            <div class="activity-icon ${type}">${icons[type]||'📌'}</div>
-            <div><div class="activity-text">${text}</div><div class="activity-time">${now}</div></div>
-        </div>
-    ` + feed.innerHTML;
-}
+        async function startScan() {
+            const payload = {
+                sector: document.getElementById('scan-sector').value,
+                location: document.getElementById('scan-location').value.trim(),
+                country_code: document.getElementById('scan-country').value,
+                language: document.getElementById('scan-language').value,
+                max_results: Number(document.getElementById('scan-max').value),
+                wait_for_completion: false
+            };
 
-function showToast(msg, type = 'success') {
-    const toast = document.getElementById('toast');
-    toast.textContent = msg;
-    toast.className = `toast ${type} show`;
-    setTimeout(() => toast.classList.remove('show'), 3000);
-}
+            if (!payload.location) {
+                showToast('Enter a location first.', 'error');
+                return;
+            }
 
-// ============================================
-// Init
-// ============================================
-document.addEventListener('DOMContentLoaded', () => {
-    refreshDashboard();
-});
-</script>
+            const status = document.getElementById('scan-status');
+            const button = document.getElementById('scan-submit-button');
+            status.style.display = 'block';
+            status.innerHTML = 'Starting scan…';
+            button.disabled = true;
+            button.textContent = 'Starting…';
+
+            const result = await api('/api/v1/scan/start', 'POST', payload);
+            button.disabled = false;
+            button.textContent = 'Start scan';
+
+            if (!result || !(result.scan_id || result.scan?.run_id)) {
+                status.innerHTML = 'Could not start the scan. Check the backend and scan credentials.';
+                showToast('Scan did not start.', 'error');
+                return;
+            }
+
+            const runId = result.scan_id || result.scan.run_id;
+            status.innerHTML = `Scan started. Run ID: <code>${runId}</code><br>Polling every 15 seconds…`;
+            showToast(`Scan started for ${payload.location}`, 'success');
+
+            let attempts = 0;
+            const pollId = window.setInterval(async () => {
+                attempts += 1;
+                const poll = await api(`/api/v1/scan/status/${runId}`);
+                if (!poll) return;
+                status.innerHTML = `Run ${runId}: <strong>${poll.status}</strong>`;
+
+                if (poll.status === 'COMPLETED' || poll.status === 'SUCCEEDED') {
+                    window.clearInterval(pollId);
+                    status.innerHTML = 'Scan completed. Refreshing cockpit…';
+                    await refreshCockpit();
+                    showToast('Scan completed and database refreshed.', 'success');
+                } else if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(poll.status)) {
+                    window.clearInterval(pollId);
+                    status.innerHTML = `Scan ended with status ${poll.status}.`;
+                    showToast('Scan failed.', 'error');
+                }
+
+                if (attempts >= 12) {
+                    window.clearInterval(pollId);
+                }
+            }, 15000);
+        }
+
+        function toggleChat() {
+            document.getElementById('chat-dock').classList.toggle('open');
+        }
+
+        function updateChatContext() {
+            const node = document.getElementById('chat-context');
+            const copy = document.getElementById('chat-context-copy');
+            if (!state.selectedLead) {
+                node.classList.remove('active');
+                copy.textContent = '';
+                return;
+            }
+            copy.innerHTML = `<strong>${escapeHtml(state.selectedLead.name)}</strong><br>Focused lead. Ask about shortcomings, platform choice, proposal readiness, or which option to invest in.`;
+            node.classList.add('active');
+        }
+
+        function addChatMessage(text, sender) {
+            const body = document.getElementById('chat-body');
+            const wrapper = document.createElement('div');
+            wrapper.className = `chat-msg ${sender}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble';
+            bubble.textContent = text;
+
+            wrapper.appendChild(bubble);
+            body.appendChild(wrapper);
+            body.scrollTop = body.scrollHeight;
+            return wrapper;
+        }
+
+        function addChatSuggestions(parent, suggestions) {
+            if (!suggestions?.length) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'chat-suggestions';
+            suggestions.forEach(question => {
+                const button = document.createElement('button');
+                button.className = 'chat-suggestion';
+                button.textContent = question;
+                button.onclick = () => runQuickPrompt(question);
+                wrap.appendChild(button);
+            });
+            parent.appendChild(wrap);
+        }
+
+        async function sendChat() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            addChatMessage(message, 'user');
+            input.value = '';
+
+            const result = await api('/api/command', 'POST', {
+                command: message,
+                selected_lead: state.selectedLead,
+                candidate_context: state.currentPool,
+                market_code: state.marketCode
+            });
+
+            if (!result?.response) {
+                addChatMessage('The backend did not return a response. Check whether the API is running.', 'jarvis');
+                return;
+            }
+
+            const jarvisMessage = addChatMessage(result.response, 'jarvis');
+
+            if (result.leads?.length) {
+                plotChatResults(result.leads, {
+                    selectedLeadKey: result.selected_lead?.lead_key,
+                    fitBounds: result.action === 'plot_map_results'
+                });
+                renderComparison(result.comparison || {
+                    ranked_candidates: result.leads,
+                    top_recommendation: result.leads[0] || null
+                });
+                showToast(`Mapped ${result.leads.length} candidates`, 'success');
+            }
+
+            if (result.selected_lead) {
+                await setSelectedLead(result.selected_lead, { fit: false, announce: false });
+            }
+
+            if (result.proposal_brief) {
+                renderProposalBrief(result.proposal_brief);
+            }
+
+            addChatSuggestions(jarvisMessage, result.suggested_questions || []);
+
+            if (result.action === 'open_scan_modal') {
+                openScanModal();
+            }
+        }
+
+        function runQuickPrompt(prompt) {
+            document.getElementById('chat-input').value = prompt;
+            toggleChatIfClosed();
+            sendChat();
+        }
+
+        function toggleChatIfClosed() {
+            const dock = document.getElementById('chat-dock');
+            if (!dock.classList.contains('open')) {
+                dock.classList.add('open');
+            }
+        }
+
+        async function refreshCockpit() {
+            await loadMarketProfile(state.marketCode);
+            await refreshStatsAndWorkflow();
+            await loadMapData();
+            if (state.currentPool.length) {
+                await refreshComparison();
+            } else {
+                renderComparison(null);
+            }
+        }
+
+        function bindTopActions() {
+            document.getElementById('refresh-button').addEventListener('click', refreshCockpit);
+            document.getElementById('scan-button').addEventListener('click', openScanModal);
+            document.getElementById('chat-button').addEventListener('click', () => {
+                toggleChatIfClosed();
+                document.getElementById('chat-input').focus();
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            bindNavigation();
+            bindTopActions();
+            populateMarketSelect('roi-market');
+            populateMarketSelect('settings-market-select');
+            document.getElementById('roi-market').value = state.marketCode;
+            await loadMarketProfile();
+            renderCandidatePanel(null, null);
+            ensureMap();
+            await refreshCockpit();
+            await loadDecisionWorklist();
+            await loadPlaybooks();
+        });
+    </script>
 </body>
 </html>
