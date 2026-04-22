@@ -1,0 +1,169 @@
+{
+  "sources": [
+    {
+      "source_key": "100m-offers",
+      "title": "$100M Offers",
+      "author": "Alex Hormozi",
+      "source_type": "operator_summary",
+      "workflow_stage": "offer_design",
+      "tags": ["offers", "pricing", "packaging", "roi", "proposal"],
+      "summary": "Use this when turning technical delivery into a commercial offer. The focus is on packaging outcomes, pricing against value, and making the proposal hard to ignore.",
+      "metadata": {
+        "recommended_use": "Pitch framing before proposal submission",
+        "priority": "high"
+      },
+      "insights": [
+        {
+          "content": "Package the solution as a business outcome rather than a list of technical tasks or features.",
+          "workflow_stage": "offer_design",
+          "tags": ["offers", "positioning", "value"],
+          "importance": 90
+        },
+        {
+          "content": "Price around commercial impact, speed, and risk reduction instead of the effort required to build the system.",
+          "workflow_stage": "offer_design",
+          "tags": ["pricing", "roi", "commercials"],
+          "importance": 92
+        },
+        {
+          "content": "Make the offer easier to say yes to by reducing ambiguity around results, delivery shape, and next steps.",
+          "workflow_stage": "offer_design",
+          "tags": ["proposal", "clarity", "risk"],
+          "importance": 84
+        }
+      ]
+    },
+    {
+      "source_key": "challenger-sale",
+      "title": "The Challenger Sale",
+      "author": "Matthew Dixon and Brent Adamson",
+      "source_type": "operator_summary",
+      "workflow_stage": "discovery_pitch",
+      "tags": ["sales", "pitch", "pain points", "discovery", "proposal"],
+      "summary": "Use this in live discovery and proposal conversations. The core move is to teach the client something new about their commercial blind spots, tailor it to their context, and then take control of the next decision.",
+      "metadata": {
+        "recommended_use": "Discovery calls and proposal conversations",
+        "priority": "high"
+      },
+      "insights": [
+        {
+          "content": "Lead with an informed diagnosis that reframes the client’s problem instead of waiting for them to describe the need perfectly.",
+          "workflow_stage": "discovery_pitch",
+          "tags": ["discovery", "pain points", "diagnosis"],
+          "importance": 91
+        },
+        {
+          "content": "Tailor the pitch to the sector, local market, and current operational gaps rather than delivering the same script every time.",
+          "workflow_stage": "discovery_pitch",
+          "tags": ["tailoring", "sector", "context"],
+          "importance": 85
+        },
+        {
+          "content": "Take control of the sales motion by recommending a concrete next step such as a qualification call, scoped audit, or proposal.",
+          "workflow_stage": "discovery_pitch",
+          "tags": ["sales", "next step", "proposal"],
+          "importance": 87
+        }
+      ]
+    },
+    {
+      "source_key": "fighting-churn-with-data",
+      "title": "Fighting Churn with Data",
+      "author": "Carl S. Gold",
+      "source_type": "operator_summary",
+      "workflow_stage": "retention_analytics",
+      "tags": ["retention", "churn", "cohorts", "analytics", "remarketing"],
+      "summary": "Use this when the opportunity is retention, reactivation, or lifecycle analytics. The emphasis is on measurable churn signals, cohort analysis, segmentation, and data-backed interventions.",
+      "metadata": {
+        "recommended_use": "Retention systems and analytics-backed proposals",
+        "priority": "high"
+      },
+      "insights": [
+        {
+          "content": "Treat churn and retention as measurable operating metrics, not vague symptoms, and anchor recommendations in cohort behaviour.",
+          "workflow_stage": "retention_analytics",
+          "tags": ["churn", "cohorts", "measurement"],
+          "importance": 92
+        },
+        {
+          "content": "Segment customers by lifecycle behaviour so reactivation campaigns can target the right groups with the right timing.",
+          "workflow_stage": "retention_analytics",
+          "tags": ["segmentation", "reactivation", "lifecycle"],
+          "importance": 88
+        },
+        {
+          "content": "Support the sales case with instrumentation, event tracking, and reporting that proves whether retention work is improving ROI.",
+          "workflow_stage": "retention_analytics",
+          "tags": ["analytics", "instrumentation", "roi"],
+          "importance": 84
+        }
+      ]
+    },
+    {
+      "source_key": "storybrand",
+      "title": "Building a StoryBrand",
+      "author": "Donald Miller",
+      "source_type": "operator_summary",
+      "workflow_stage": "messaging",
+      "tags": ["messaging", "website", "landing page", "copy", "cta"],
+      "summary": "Use this when the client needs a clearer website, landing page, or proposal narrative. The goal is to reduce confusion, position the client as the guide, and make the next action obvious.",
+      "metadata": {
+        "recommended_use": "Website rebuilds, landing pages, and message architecture",
+        "priority": "high"
+      },
+      "insights": [
+        {
+          "content": "Make the customer the hero of the story and position the business as the guide with a clear plan.",
+          "workflow_stage": "messaging",
+          "tags": ["copy", "positioning", "clarity"],
+          "importance": 89
+        },
+        {
+          "content": "Each page and proposal should make the problem, the plan, and the call to action immediately visible.",
+          "workflow_stage": "messaging",
+          "tags": ["website", "cta", "proposal"],
+          "importance": 90
+        },
+        {
+          "content": "Use this framework to rewrite headlines, service pages, and email flows so the message is easier to follow and easier to act on.",
+          "workflow_stage": "messaging",
+          "tags": ["headline", "landing page", "email"],
+          "importance": 82
+        }
+      ]
+    },
+    {
+      "source_key": "hooked",
+      "title": "Hooked",
+      "author": "Nir Eyal",
+      "source_type": "operator_summary",
+      "workflow_stage": "habit_design",
+      "tags": ["retention", "engagement", "habit", "re-engagement", "remarketing"],
+      "summary": "Use this for remarketing, re-engagement, and behavioural system design. The key model is trigger, action, variable reward, and investment.",
+      "metadata": {
+        "recommended_use": "Lifecycle automation and engagement loops",
+        "priority": "medium"
+      },
+      "insights": [
+        {
+          "content": "Design retention systems around repeatable triggers, simple actions, and a reason for the customer to come back.",
+          "workflow_stage": "habit_design",
+          "tags": ["trigger", "engagement", "retention"],
+          "importance": 87
+        },
+        {
+          "content": "Variable rewards and lightweight investment mechanics can improve reactivation flows more effectively than generic reminders.",
+          "workflow_stage": "habit_design",
+          "tags": ["reward", "reactivation", "lifecycle"],
+          "importance": 83
+        },
+        {
+          "content": "Apply this framework when building remarketing emails, loyalty mechanics, and behavioural analytics events.",
+          "workflow_stage": "habit_design",
+          "tags": ["remarketing", "loyalty", "analytics"],
+          "importance": 80
+        }
+      ]
+    }
+  ]
+}

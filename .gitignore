@@ -60,3 +60,11 @@ htmlcov/
 tmp/
 scratch/
 *.tmp
+
+# --- Knowledge Library Sources ---
+playbooks/*.pdf
+playbooks/*.epub
+playbooks/*.mobi
+playbooks/**/*.pdf
+playbooks/**/*.epub
+playbooks/**/*.mobi

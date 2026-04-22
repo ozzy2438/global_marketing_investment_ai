@@ -53,6 +53,20 @@ Supporting components:
 - `jarvis_scan_api.py`: broader background scanning endpoints
 - `jarvis_mcp.py`: downstream delivery lane and legacy MCP-oriented implementation templates
 
+## Knowledge library
+
+JARVIS now includes a lightweight retrieval layer for strategy notes, book summaries, and operator-authored frameworks.
+
+- Structured sources are indexed from the `playbooks/` directory into `knowledge_sources` and `knowledge_snippets`.
+- Supported ingestion formats are:
+  - `.json`
+  - `*.summary.md`
+  - `*.summary.txt`
+- Sync happens on startup and can be triggered again with `POST /api/knowledge/sync`.
+- The dashboard Playbooks page shows sync status, indexed sources, and any skipped files.
+
+Important: raw third-party book files such as `.pdf` and `.epub` are intentionally skipped. The intended workflow is licensed material or research notes → your own structured summary → retrieval inside JARVIS.
+
 ## Key capabilities
 
 ### 1. Market-aware decision engine
@@ -156,6 +170,16 @@ JARVIS can now return a structured proposal brief for a focused lead:
 3. Set owner, next action, follow-up date, and confidence.
 4. Save the decision into the worklist.
 
+### Voice mode
+JARVIS now supports a persistent browser-based voice loop:
+
+1. Start or restore a conversation session.
+2. Record from the browser microphone.
+3. Transcribe with OpenAI speech-to-text.
+4. Run the normal `/api/command` decision workflow.
+5. Speak the reply back with OpenAI TTS.
+6. Persist both sides of the conversation in backend memory.
+
 ### Proposal handoff
 1. Load the proposal brief for the focused lead.
 2. Use the structured scope and rationale for downstream delivery.
@@ -169,6 +193,10 @@ JARVIS can now return a structured proposal brief for a focused lead:
 - `GET /api/dashboard/stats`
 - `GET /api/dashboard/pipeline`
 - `GET /api/dashboard/decision-overview`
+- `POST /api/conversations/start`
+- `GET /api/conversations/{session_id}`
+- `POST /api/voice/transcribe`
+- `POST /api/tts`
 
 ### Candidate intelligence
 - `POST /api/command`
@@ -297,4 +325,3 @@ Recommended verification flow:
 - autonomous outreach
 - deeper execution automation
 - fuller delivery orchestration
-

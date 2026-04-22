@@ -34,8 +34,10 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import math
 import hashlib
+import uuid
 from dotenv import load_dotenv
 from jarvis_serpapi_global import SerpApiGlobalIntegration
+from jarvis_serper_research import SerperWebResearch
 
 load_dotenv()
 
@@ -272,6 +274,56 @@ class DatabaseManager:
                     analysis_snapshot TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+            "knowledge_sources": """
+                CREATE TABLE IF NOT EXISTS knowledge_sources (
+                    id SERIAL PRIMARY KEY,
+                    source_key TEXT UNIQUE NOT NULL,
+                    title TEXT NOT NULL,
+                    author TEXT,
+                    source_type TEXT DEFAULT 'summary',
+                    source_path TEXT,
+                    workflow_stage TEXT,
+                    summary TEXT,
+                    tags TEXT,
+                    status TEXT DEFAULT 'ready',
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+            "knowledge_snippets": """
+                CREATE TABLE IF NOT EXISTS knowledge_snippets (
+                    id SERIAL PRIMARY KEY,
+                    source_id INTEGER REFERENCES knowledge_sources(id),
+                    snippet_key TEXT UNIQUE NOT NULL,
+                    content TEXT NOT NULL,
+                    insight_type TEXT,
+                    workflow_stage TEXT,
+                    tags TEXT,
+                    importance INTEGER DEFAULT 50,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+            "conversation_sessions": """
+                CREATE TABLE IF NOT EXISTS conversation_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    title TEXT,
+                    mode TEXT DEFAULT 'chat',
+                    market_code TEXT DEFAULT 'AU',
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+            "conversation_messages": """
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT REFERENCES conversation_sessions(session_id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    message_type TEXT DEFAULT 'text',
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )"""
         }
 
@@ -699,7 +751,598 @@ class PlaybookManager:
 
 
 # ============================================
-# 4. ROI CALCULATOR
+# 4. KNOWLEDGE LIBRARY
+# ============================================
+class KnowledgeLibrary:
+    """Indexes structured playbook summaries and notes for retrieval."""
+
+    WORKFLOW_KEYWORDS = {
+        "offer_design": ("offer", "offers", "pricing", "price", "package", "irresistible", "value"),
+        "discovery_pitch": ("pitch", "sale", "sales", "discovery", "pain point", "pain points", "objection", "wow", "challenger"),
+        "retention_analytics": ("churn", "retention", "cohort", "analytics", "remarketing", "re-engagement", "reactivation"),
+        "messaging": ("website", "headline", "landing page", "copy", "cta", "storybrand", "message"),
+        "habit_design": ("hooked", "trigger", "reward", "investment", "habit", "engagement"),
+    }
+
+    def __init__(self, db: Optional[DatabaseManager] = None, library_dir: Optional[str] = None):
+        self.db = db
+        self.library_dir = library_dir or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "playbooks",
+        )
+        self.last_sync_report: Dict[str, Any] = {
+            "synced_sources": 0,
+            "synced_snippets": 0,
+            "indexed_files": [],
+            "skipped_files": [],
+        }
+        self.sources_cache: List[Dict[str, Any]] = []
+        self.snippets_cache: List[Dict[str, Any]] = []
+
+    def _slugify(self, value: str) -> str:
+        cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower())
+        return cleaned.strip("-") or "source"
+
+    def _normalise_list(self, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return [str(value).strip()]
+
+    def _source_key(self, record: Dict[str, Any], source_path: str) -> str:
+        if record.get("source_key"):
+            return str(record["source_key"])
+        base = record.get("title") or os.path.basename(source_path)
+        return self._slugify(base)
+
+    def _build_snippet(self, source_key: str, snippet: Dict[str, Any], index: int, fallback_stage: str, fallback_tags: List[str]) -> Dict[str, Any]:
+        content = str(snippet.get("content", "")).strip()
+        if not content:
+            return {}
+        return {
+            "source_key": source_key,
+            "snippet_key": snippet.get("snippet_key") or f"{source_key}-{index}",
+            "content": content,
+            "insight_type": snippet.get("insight_type", "insight"),
+            "workflow_stage": snippet.get("workflow_stage", fallback_stage),
+            "tags": self._normalise_list(snippet.get("tags") or fallback_tags),
+            "importance": int(snippet.get("importance", 50)),
+            "metadata": snippet.get("metadata", {}),
+        }
+
+    def _normalise_source_record(self, record: Dict[str, Any], source_path: str) -> Dict[str, Any]:
+        source_key = self._source_key(record, source_path)
+        tags = self._normalise_list(record.get("tags"))
+        workflow_stage = record.get("workflow_stage", "general")
+        insights = []
+        for index, snippet in enumerate(record.get("insights", []), start=1):
+            normalised = self._build_snippet(source_key, snippet, index, workflow_stage, tags)
+            if normalised:
+                insights.append(normalised)
+
+        if not insights and record.get("summary"):
+            insights.append(
+                {
+                    "snippet_key": f"{source_key}-summary",
+                    "content": str(record["summary"]).strip(),
+                    "insight_type": "summary",
+                    "workflow_stage": workflow_stage,
+                    "tags": tags,
+                    "importance": int(record.get("importance", 60)),
+                    "metadata": {},
+                }
+            )
+
+        return {
+            "source_key": source_key,
+            "title": str(record.get("title", source_key)).strip(),
+            "author": str(record.get("author", "")).strip(),
+            "source_type": record.get("source_type", "summary"),
+            "source_path": source_path,
+            "workflow_stage": workflow_stage,
+            "summary": str(record.get("summary", "")).strip(),
+            "tags": tags,
+            "status": record.get("status", "ready"),
+            "metadata": record.get("metadata", {}),
+            "insights": insights,
+        }
+
+    def _load_json_file(self, file_path: str) -> List[Dict[str, Any]]:
+        with open(file_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+        if isinstance(payload, dict) and "sources" in payload:
+            records = payload["sources"]
+        elif isinstance(payload, list):
+            records = payload
+        elif isinstance(payload, dict):
+            records = [payload]
+        else:
+            records = []
+
+        return [self._normalise_source_record(record, file_path) for record in records]
+
+    def _load_summary_file(self, file_path: str) -> List[Dict[str, Any]]:
+        with open(file_path, "r", encoding="utf-8") as handle:
+            raw = handle.read()
+
+        lines = [line.rstrip() for line in raw.splitlines()]
+        title = os.path.splitext(os.path.basename(file_path))[0]
+        author = ""
+        workflow_stage = "general"
+        tags: List[str] = []
+        summary_lines: List[str] = []
+        insight_lines: List[str] = []
+        parsing_metadata = True
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped and parsing_metadata:
+                parsing_metadata = False
+                continue
+            if parsing_metadata and stripped.startswith("# "):
+                title = stripped[2:].strip()
+                continue
+            if parsing_metadata and ":" in stripped:
+                key, value = stripped.split(":", 1)
+                key = key.strip().lower()
+                value = value.strip()
+                if key == "author":
+                    author = value
+                    continue
+                if key == "workflow":
+                    workflow_stage = value
+                    continue
+                if key == "tags":
+                    tags = self._normalise_list(value)
+                    continue
+
+            if stripped.startswith(("-", "*")):
+                insight_lines.append(stripped[1:].strip())
+            elif stripped:
+                summary_lines.append(stripped)
+
+        summary = " ".join(summary_lines[:3]).strip()
+        return [
+            self._normalise_source_record(
+                {
+                    "title": title,
+                    "author": author,
+                    "workflow_stage": workflow_stage,
+                    "tags": tags,
+                    "summary": summary,
+                    "insights": [
+                        {"content": insight, "workflow_stage": workflow_stage, "tags": tags}
+                        for insight in insight_lines
+                    ],
+                },
+                file_path,
+            )
+        ]
+
+    def _persist_source(self, source: Dict[str, Any]) -> int:
+        if not self.db:
+            return 0
+
+        self.db.execute(
+            """
+            INSERT INTO knowledge_sources (
+                source_key, title, author, source_type, source_path,
+                workflow_stage, summary, tags, status, metadata_json, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (source_key) DO UPDATE SET
+                title = EXCLUDED.title,
+                author = EXCLUDED.author,
+                source_type = EXCLUDED.source_type,
+                source_path = EXCLUDED.source_path,
+                workflow_stage = EXCLUDED.workflow_stage,
+                summary = EXCLUDED.summary,
+                tags = EXCLUDED.tags,
+                status = EXCLUDED.status,
+                metadata_json = EXCLUDED.metadata_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                source["source_key"],
+                source["title"],
+                source["author"],
+                source["source_type"],
+                source["source_path"],
+                source["workflow_stage"],
+                source["summary"],
+                json.dumps(source["tags"], ensure_ascii=False),
+                source["status"],
+                json.dumps(source.get("metadata", {}), ensure_ascii=False),
+            ),
+        )
+        row = self.db.fetch_one(
+            "SELECT id FROM knowledge_sources WHERE source_key = ?",
+            (source["source_key"],),
+        )
+        return int(row["id"]) if row else 0
+
+    def _persist_snippets(self, source_id: int, snippets: List[Dict[str, Any]]) -> None:
+        if not self.db or not source_id:
+            return
+        self.db.execute("DELETE FROM knowledge_snippets WHERE source_id = ?", (source_id,))
+        for snippet in snippets:
+            self.db.execute(
+                """
+                INSERT INTO knowledge_snippets (
+                    source_id, snippet_key, content, insight_type,
+                    workflow_stage, tags, importance, metadata_json, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    source_id,
+                    snippet["snippet_key"],
+                    snippet["content"],
+                    snippet["insight_type"],
+                    snippet["workflow_stage"],
+                    json.dumps(snippet["tags"], ensure_ascii=False),
+                    snippet["importance"],
+                    json.dumps(snippet.get("metadata", {}), ensure_ascii=False),
+                ),
+            )
+
+    def sync_directory(self, persist: bool = True) -> Dict[str, Any]:
+        report = {
+            "synced_sources": 0,
+            "synced_snippets": 0,
+            "indexed_files": [],
+            "skipped_files": [],
+            "library_dir": self.library_dir,
+            "synced_at": datetime.now().isoformat(),
+        }
+
+        sources: List[Dict[str, Any]] = []
+        snippets: List[Dict[str, Any]] = []
+
+        if not os.path.isdir(self.library_dir):
+            self.last_sync_report = report
+            self.sources_cache = []
+            self.snippets_cache = []
+            return report
+
+        for root, dirnames, filenames in os.walk(self.library_dir):
+            dirnames[:] = [dirname for dirname in dirnames if not dirname.startswith(".")]
+            for entry in sorted(filename for filename in filenames if not filename.startswith(".")):
+                file_path = os.path.join(root, entry)
+                relative_path = os.path.relpath(file_path, self.library_dir)
+                lower = relative_path.lower()
+
+                if lower.endswith((".pdf", ".epub", ".mobi")):
+                    report["skipped_files"].append(
+                        {
+                            "file": relative_path,
+                            "reason": "Binary book files are not indexed automatically. Add a structured summary or notes file instead.",
+                        }
+                    )
+                    continue
+
+                loaded_sources: List[Dict[str, Any]] = []
+                if lower.endswith(".json"):
+                    loaded_sources = self._load_json_file(file_path)
+                elif lower.endswith(".summary.md") or lower.endswith(".summary.txt"):
+                    loaded_sources = self._load_summary_file(file_path)
+                else:
+                    continue
+
+                if not loaded_sources:
+                    continue
+
+                report["indexed_files"].append(relative_path)
+                for source in loaded_sources:
+                    sources.append(source)
+                    snippets.extend(source["insights"])
+                    if persist:
+                        source_id = self._persist_source(source)
+                        self._persist_snippets(source_id, source["insights"])
+
+        self.sources_cache = sources
+        self.snippets_cache = snippets
+        report["synced_sources"] = len(sources)
+        report["synced_snippets"] = len(snippets)
+        self.last_sync_report = report
+        return report
+
+    def _ensure_loaded(self) -> None:
+        if not self.sources_cache and not self.snippets_cache:
+            self.sync_directory(persist=False)
+
+    def _parse_json_field(self, value: Any) -> Any:
+        if isinstance(value, (list, dict)):
+            return value
+        if value in (None, ""):
+            return []
+        try:
+            return json.loads(value)
+        except Exception:
+            return []
+
+    def get_sources(self, limit: int = 50) -> List[Dict[str, Any]]:
+        self._ensure_loaded()
+        if self.db:
+            try:
+                rows = self.db.fetch_all(
+                    "SELECT * FROM knowledge_sources ORDER BY title ASC LIMIT ?",
+                    (limit,),
+                )
+            except Exception:
+                rows = []
+            if rows:
+                return [
+                    {
+                        **dict(row),
+                        "tags": self._parse_json_field(row.get("tags")),
+                        "metadata": self._parse_json_field(row.get("metadata_json")),
+                    }
+                    for row in rows
+                ]
+        return self.sources_cache[:limit]
+
+    def get_status(self) -> Dict[str, Any]:
+        self._ensure_loaded()
+        if self.db:
+            try:
+                source_count = self.db.fetch_one("SELECT COUNT(*) AS c FROM knowledge_sources")
+                snippet_count = self.db.fetch_one("SELECT COUNT(*) AS c FROM knowledge_snippets")
+            except Exception:
+                source_count = None
+                snippet_count = None
+            return {
+                **self.last_sync_report,
+                "source_count": int(source_count["c"]) if source_count else len(self.sources_cache),
+                "snippet_count": int(snippet_count["c"]) if snippet_count else len(self.snippets_cache),
+            }
+        return {
+            **self.last_sync_report,
+            "source_count": len(self.sources_cache),
+            "snippet_count": len(self.snippets_cache),
+        }
+
+    def _workflow_matches(self, query: str) -> List[str]:
+        lower = query.lower()
+        matches = []
+        for workflow, keywords in self.WORKFLOW_KEYWORDS.items():
+            if any(keyword in lower for keyword in keywords):
+                matches.append(workflow)
+        return matches
+
+    def search(self, query: str, limit: int = 5) -> Dict[str, Any]:
+        self._ensure_loaded()
+        tokens = {token for token in re.findall(r"[a-z0-9]+", query.lower()) if len(token) > 2}
+        workflows = self._workflow_matches(query)
+
+        source_map = {source["source_key"]: dict(source) for source in self.sources_cache}
+        for source in source_map.values():
+            source["matched_insights"] = []
+            source["score"] = 0
+
+        for snippet in self.snippets_cache:
+            source = source_map.get(snippet["snippet_key"].rsplit("-", 1)[0])
+            if not source:
+                source = source_map.get(snippet.get("source_key", ""))
+            if not source:
+                continue
+
+            haystack = " ".join(
+                [
+                    source.get("title", ""),
+                    source.get("author", ""),
+                    source.get("summary", ""),
+                    " ".join(source.get("tags", [])),
+                    snippet.get("content", ""),
+                    " ".join(snippet.get("tags", [])),
+                    snippet.get("workflow_stage", ""),
+                    snippet.get("insight_type", ""),
+                ]
+            ).lower()
+
+            score = 0
+            for token in tokens:
+                if token in source.get("title", "").lower():
+                    score += 8
+                elif token in haystack:
+                    score += 3
+
+            if workflows and snippet.get("workflow_stage") in workflows:
+                score += 10
+            if workflows and source.get("workflow_stage") in workflows:
+                score += 10
+
+            score += min(int(snippet.get("importance", 50)) // 20, 5)
+
+            if score > 0:
+                source["score"] += score
+                source["matched_insights"].append(
+                    {
+                        "content": snippet["content"],
+                        "workflow_stage": snippet.get("workflow_stage", ""),
+                        "insight_type": snippet.get("insight_type", "insight"),
+                        "importance": int(snippet.get("importance", 50)),
+                        "score": score,
+                    }
+                )
+
+        ranked_sources = [
+            source
+            for source in source_map.values()
+            if source["matched_insights"] or (workflows and source.get("workflow_stage") in workflows)
+        ]
+        ranked_sources.sort(key=lambda source: (source["score"], len(source["matched_insights"])), reverse=True)
+
+        matches = []
+        for source in ranked_sources[:limit]:
+            source["matched_insights"].sort(key=lambda item: (item["score"], item["importance"]), reverse=True)
+            matches.append(
+                {
+                    "source_key": source["source_key"],
+                    "title": source["title"],
+                    "author": source.get("author", ""),
+                    "workflow_stage": source.get("workflow_stage", ""),
+                    "summary": source.get("summary", ""),
+                    "tags": source.get("tags", []),
+                    "score": source["score"],
+                    "matched_insights": source["matched_insights"][:3],
+                }
+            )
+
+        return {
+            "query": query,
+            "workflow_matches": workflows,
+            "matches": matches,
+            "status": self.get_status(),
+        }
+
+
+# ============================================
+# 5. CONVERSATION MEMORY
+# ============================================
+class ConversationMemory:
+    """Persistent chat and voice session memory."""
+
+    def __init__(self, db: DatabaseManager):
+        self.db = db
+
+    def _parse_json_field(self, value: Any, fallback: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return value
+        if value in (None, ""):
+            return fallback
+        try:
+            return json.loads(value)
+        except Exception:
+            return fallback
+
+    def _hydrate_session(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not row:
+            return None
+        record = dict(row)
+        record["metadata"] = self._parse_json_field(record.get("metadata_json"), {})
+        return record
+
+    def _hydrate_message(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        record = dict(row)
+        record["metadata"] = self._parse_json_field(record.get("metadata_json"), {})
+        return record
+
+    def ensure_session(
+        self,
+        session_id: Optional[str] = None,
+        market_code: str = "AU",
+        mode: str = "chat",
+        title: str = "JARVIS Conversation",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        existing = self.get_session(session_id) if session_id else None
+        if existing:
+            return existing
+
+        resolved_session_id = session_id or uuid.uuid4().hex
+        self.db.execute(
+            """
+            INSERT INTO conversation_sessions (
+                session_id, title, mode, market_code, metadata_json, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (session_id) DO UPDATE SET
+                title = EXCLUDED.title,
+                mode = EXCLUDED.mode,
+                market_code = EXCLUDED.market_code,
+                metadata_json = EXCLUDED.metadata_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                resolved_session_id,
+                title,
+                mode,
+                market_code,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        return self.get_session(resolved_session_id) or {
+            "session_id": resolved_session_id,
+            "title": title,
+            "mode": mode,
+            "market_code": market_code,
+            "metadata": metadata or {},
+        }
+
+    def get_session(self, session_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not session_id:
+            return None
+        row = self.db.fetch_one(
+            "SELECT * FROM conversation_sessions WHERE session_id = ?",
+            (session_id,),
+        )
+        return self._hydrate_session(row)
+
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        message_type: str = "text",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not session_id or not content.strip():
+            return None
+        self.db.execute(
+            """
+            INSERT INTO conversation_messages (
+                session_id, role, content, message_type, metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                role,
+                content.strip(),
+                message_type,
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ),
+        )
+        self.db.execute(
+            "UPDATE conversation_sessions SET updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+            (session_id,),
+        )
+        row = self.db.fetch_one(
+            "SELECT * FROM conversation_messages WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        )
+        return self._hydrate_message(row) if row else None
+
+    def get_messages(self, session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        rows = self.db.fetch_all(
+            """
+            SELECT * FROM conversation_messages
+            WHERE session_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (session_id, limit),
+        )
+        hydrated = [self._hydrate_message(row) for row in rows]
+        hydrated.reverse()
+        return hydrated
+
+    def get_prompt_history(self, session_id: str, limit: int = 8) -> List[Dict[str, str]]:
+        messages = self.get_messages(session_id, limit)
+        return [
+            {"role": message["role"], "content": message["content"]}
+            for message in messages
+            if message.get("role") in {"user", "assistant"} and message.get("content")
+        ]
+
+
+# ============================================
+# 6. ROI CALCULATOR
 # ============================================
 class ROICalculator:
     """Sector ROI calculator with market-aware package pricing."""
@@ -1149,12 +1792,20 @@ class JARVIS:
         "proposal": ("proposal", "submit", "pitch", "offer", "outreach", "send"),
     }
 
+    KNOWLEDGE_KEYWORDS = (
+        "book", "books", "playbook", "playbooks", "offer", "offers", "pitch",
+        "pain point", "pain points", "storybrand", "hooked", "churn",
+        "retention", "sales", "pricing", "remarketing", "re-engagement",
+    )
+
     def __init__(self):
         self.db = DatabaseManager()
         self.market_profiles = MarketProfileManager()
         self.default_market = self.market_profiles.DEFAULT_MARKET
         self.scoring = LeadScoringEngine(self.market_profiles, self.default_market)
         self.playbooks = PlaybookManager()
+        self.knowledge = KnowledgeLibrary(self.db)
+        self.memory = ConversationMemory(self.db)
         self.roi = ROICalculator(self.market_profiles, self.default_market)
         self.pitch = PitchScriptGenerator(self.market_profiles, self.default_market)
         self.roadmap = RevenueRoadmapEngine()
@@ -1164,20 +1815,27 @@ class JARVIS:
             self.serpapi = SerpApiGlobalIntegration()
         except Exception:
             self.serpapi = None
+        try:
+            self.web_research = SerperWebResearch()
+        except Exception:
+            self.web_research = None
         self.version = "2.0.0"
         self.name = "JARVIS"
 
     def start(self):
         """JARVIS'i başlat"""
         tables = self.db.initialize()
+        knowledge_sync = self.knowledge.sync_directory(persist=True)
         return {
             "status": "active",
             "version": self.version,
             "tables_created": tables,
+            "knowledge_sources_synced": knowledge_sync["synced_sources"],
             "modules": [
                 "DatabaseManager", "MarketProfileManager", "LeadScoringEngine", "PlaybookManager",
+                "KnowledgeLibrary", "ConversationMemory",
                 "ROICalculator", "PitchScriptGenerator", "RevenueRoadmapEngine",
-                "ContractGenerator", "BoardMeetingAI", "SerpApiIntegration"
+                "ContractGenerator", "BoardMeetingAI", "SerpApiIntegration", "SerperWebResearch"
             ]
         }
 
@@ -1220,6 +1878,97 @@ class JARVIS:
 
     def get_market_profile(self, market_code: Optional[str] = None) -> Dict[str, Any]:
         return self.market_profiles.get_profile(market_code or self.default_market)
+
+    def sync_knowledge_library(self) -> Dict[str, Any]:
+        return self.knowledge.sync_directory(persist=True)
+
+    def search_knowledge(self, query: str, limit: int = 5) -> Dict[str, Any]:
+        return self.knowledge.search(query, limit)
+
+    def deep_research_candidate(self, candidate: Dict[str, Any], market_code: Optional[str] = None) -> Dict[str, Any]:
+        if not self.web_research:
+            raise RuntimeError("Serper web research is not configured. Add SERPER_API_KEY to enable deep research.")
+        lead = self._enrich_candidate(candidate, market_code)
+        return self.web_research.research_business(
+            business_name=lead.get("name", ""),
+            location=lead.get("raw_address", ""),
+            website=lead.get("website", ""),
+            sector=lead.get("sector", ""),
+            market_code=lead.get("market_code", market_code or self.default_market),
+        )
+
+    def ensure_conversation_session(
+        self,
+        session_id: Optional[str] = None,
+        market_code: Optional[str] = None,
+        mode: str = "chat",
+        title: str = "JARVIS Conversation",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self.memory.ensure_session(
+            session_id=session_id,
+            market_code=(market_code or self.default_market).upper(),
+            mode=mode,
+            title=title,
+            metadata=metadata,
+        )
+
+    def get_conversation_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        return self.memory.get_session(session_id)
+
+    def get_conversation_messages(self, session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        return self.memory.get_messages(session_id, limit)
+
+    def get_conversation_prompt_history(self, session_id: str, limit: int = 8) -> List[Dict[str, str]]:
+        return self.memory.get_prompt_history(session_id, limit)
+
+    def append_conversation_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        message_type: str = "text",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        return self.memory.add_message(session_id, role, content, message_type, metadata)
+
+    def _knowledge_query_for_candidate(self, lead: Dict[str, Any], intent: Optional[str] = None) -> str:
+        enriched = lead if lead.get("gap_scores") else self._enrich_candidate(lead)
+        highest_gap = max(enriched.get("gap_scores", {"conversion_gap": 0}), key=enriched.get("gap_scores", {"conversion_gap": 0}).get)
+        gap_terms = {
+            "acquisition_gap": "offer positioning acquisition website messaging",
+            "retention_gap": "retention churn re-engagement loyalty lifecycle",
+            "conversion_gap": "sales conversion pain points pitch follow-up",
+            "operations_gap": "crm operations workflow pipeline handoff",
+            "visibility_gap": "storybrand messaging reviews reputation local seo",
+        }
+        intent_terms = {
+            "invest": "best idea commercial priority decision framework",
+            "shortcomings": "pain points diagnostic weaknesses commercial gaps",
+            "crm": "crm customer platform retention funnel follow-up",
+            "proposal": "offer pricing challenger pitch proposal wow",
+        }
+        query_parts = [
+            intent_terms.get(intent or "", "offer pitch retention messaging"),
+            gap_terms.get(highest_gap, ""),
+            enriched.get("recommended_service_type", ""),
+            enriched.get("platform_type", ""),
+            enriched.get("sector", ""),
+        ]
+        return " ".join(part for part in query_parts if part)
+
+    def _recommended_playbooks(self, lead: Dict[str, Any], intent: Optional[str] = None, limit: int = 2) -> List[Dict[str, Any]]:
+        query = self._knowledge_query_for_candidate(lead, intent)
+        return self.search_knowledge(query, limit).get("matches", [])
+
+    def _format_playbook_guidance(self, matches: List[Dict[str, Any]], heading: str = "Playbook guidance") -> str:
+        if not matches:
+            return ""
+        lines = [heading + ":"]
+        for match in matches:
+            insight = match.get("matched_insights", [{}])[0].get("content") or match.get("summary", "")
+            lines.append(f"- {match['title']}: {insight}")
+        return "\n".join(lines)
 
     def _resolve_market_code(
         self,
@@ -1267,13 +2016,17 @@ class JARVIS:
                 "ranked_candidates": [],
                 "summary": "No candidates are loaded yet.",
                 "top_recommendation": None,
+                "recommended_playbooks": [],
             }
 
         leader = ranked[0]
+        playbooks = self._recommended_playbooks(leader, "invest", limit=2)
         summary = (
             f"{leader['name']} is the strongest current target because {leader['fit_summary'].lower()} "
             f"and its proposal readiness is {leader['proposal_readiness'].lower()}."
         )
+        if playbooks:
+            summary += " Strategy anchors: " + ", ".join(match["title"] for match in playbooks) + "."
         return {
             "market_profile": self.get_market_profile(market_code),
             "ranked_candidates": ranked,
@@ -1285,10 +2038,12 @@ class JARVIS:
                 "proposal_readiness": leader["proposal_readiness"],
                 "recommended_service": leader["recommended_service_type"],
             },
+            "recommended_playbooks": playbooks,
         }
 
     def build_proposal_brief(self, candidate: Dict, market_code: Optional[str] = None) -> Dict[str, Any]:
         lead = self._enrich_candidate(candidate, market_code)
+        playbooks = self._recommended_playbooks(lead, "proposal", limit=3)
         return {
             "lead_key": lead["lead_key"],
             "target_business": lead["name"],
@@ -1305,6 +2060,8 @@ class JARVIS:
             "expected_business_outcome": lead["expected_business_outcome"],
             "proposed_scope": lead["proposed_scope"],
             "decision_trace": lead["decision_trace"],
+            "recommended_playbooks": playbooks,
+            "playbook_guidance": self._format_playbook_guidance(playbooks, "Recommended playbooks"),
         }
 
     def get_candidate_decision(self, lead_key: str) -> Optional[Dict[str, Any]]:
@@ -1822,37 +2579,45 @@ class JARVIS:
     def _analyze_selected_candidate(self, command: str, selected_lead: Dict) -> str:
         lead = self._enrich_candidate(selected_lead)
         intent = self._detect_strategy_intent(command)
+        playbook_note = self._format_playbook_guidance(
+            self._recommended_playbooks(lead, intent or "invest", limit=2)
+        )
 
         if intent == "invest":
-            return (
+            response = (
                 f"{lead['name']} is a {lead['invest_recommendation'].lower()} with an investment score of "
                 f"{lead['investment_score']}/100. The strongest signals are "
                 f"{'; '.join(lead['strengths'][:2]) or 'limited but workable traction'}"
             )
+            return f"{response}\n{playbook_note}" if playbook_note else response
 
         if intent == "shortcomings":
-            return (
+            response = (
                 f"{lead['name']} shortcomings: " +
                 "; ".join(lead["shortcomings"][:3])
             )
+            return f"{response}\n{playbook_note}" if playbook_note else response
 
         if intent == "crm":
-            return (
+            response = (
                 f"For {lead['name']}, I would start with a {lead['platform_type'].lower()}. "
                 f"The recommended service is {lead['recommended_service_type'].lower()}. "
                 f"Reason: {lead['platform_reason']}"
             )
+            return f"{response}\n{playbook_note}" if playbook_note else response
 
         if intent == "proposal":
-            return (
+            response = (
                 f"For {lead['name']}, my proposal recommendation is: {lead['proposal_recommendation']} "
                 f"Fit summary: {lead['fit_summary']} Risk: {lead['risk_summary']}"
             )
+            return f"{response}\n{playbook_note}" if playbook_note else response
 
-        return (
+        response = (
             self._format_candidate_snapshot(lead) + " Ask me about investment priority, shortcomings, "
             "CRM/platform choice, or proposal readiness for this selected lead."
         )
+        return f"{response}\n{playbook_note}" if playbook_note else response
 
     def _analyze_candidate_pool(self, command: str, candidate_context: List[Dict]) -> str:
         if not candidate_context:
@@ -1861,13 +2626,17 @@ class JARVIS:
         ranked = self._rank_candidates(candidate_context)
         intent = self._detect_strategy_intent(command)
         top = ranked[: min(5, len(ranked))]
+        playbook_note = self._format_playbook_guidance(
+            self._recommended_playbooks(top[0], intent or "invest", limit=2)
+        )
 
         if intent == "shortcomings":
             lines = ["Shortcomings across the current options:"]
             for idx, lead in enumerate(top, start=1):
                 items = "; ".join(lead["shortcomings"][:2]) if lead["shortcomings"] else "No major gap flagged"
                 lines.append(f"{idx}. {lead['name']} — {items}")
-            return "\n".join(lines)
+            response = "\n".join(lines)
+            return f"{response}\n{playbook_note}" if playbook_note else response
 
         if intent == "crm":
             lines = ["Platform recommendation across the current options:"]
@@ -1876,7 +2645,8 @@ class JARVIS:
                     f"{idx}. {lead['name']} — {lead['platform_type']} / {lead['recommended_service_type']}: "
                     f"{lead['platform_reason']}"
                 )
-            return "\n".join(lines)
+            response = "\n".join(lines)
+            return f"{response}\n{playbook_note}" if playbook_note else response
 
         if intent == "proposal":
             lines = ["Proposal priority across the current options:"]
@@ -1885,7 +2655,8 @@ class JARVIS:
                     f"{idx}. {lead['name']} — {lead['proposal_recommendation']} "
                     f"(investment score {lead['investment_score']}/100, readiness {lead['proposal_readiness']})"
                 )
-            return "\n".join(lines)
+            response = "\n".join(lines)
+            return f"{response}\n{playbook_note}" if playbook_note else response
 
         best = top[0]
         runners_up = ", ".join(f"{lead['name']} ({lead['investment_score']}/100)" for lead in top[1:3])
@@ -1896,9 +2667,43 @@ class JARVIS:
         if runners_up:
             response += f" Next in line: {runners_up}."
         response += " Ask me about shortcomings, CRM/platform choice, or proposal readiness if you want the next decision layer."
-        return response
+        return f"{response}\n{playbook_note}" if playbook_note else response
 
-    def _general_chat_fallback(self, command: str, selected_lead: Optional[Dict] = None, candidate_context: Optional[List[Dict]] = None) -> str:
+    def _knowledge_chat_response(self, command: str) -> Optional[str]:
+        lower = command.lower()
+        if not any(keyword in lower for keyword in self.KNOWLEDGE_KEYWORDS):
+            return None
+
+        result = self.search_knowledge(command, limit=3)
+        matches = result.get("matches", [])
+        if not matches:
+            return None
+
+        lines = ["Relevant playbooks from the knowledge library:"]
+        for index, match in enumerate(matches, start=1):
+            line = f"{index}. {match['title']}"
+            if match.get("author"):
+                line += f" by {match['author']}"
+            if match.get("workflow_stage"):
+                line += f" [{match['workflow_stage']}]"
+            line += f" — {match['summary']}"
+            lines.append(line)
+            for insight in match.get("matched_insights", [])[:2]:
+                lines.append(f"   - {insight['content']}")
+
+        lines.append(
+            "For copyrighted books, keep the system on structured summaries, notes, and extracted frameworks you are allowed to use. "
+            "Do not rely on raw unlicensed book files as the retrieval corpus."
+        )
+        return "\n".join(lines)
+
+    def _general_chat_fallback(
+        self,
+        command: str,
+        selected_lead: Optional[Dict] = None,
+        candidate_context: Optional[List[Dict]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
         if selected_lead:
             selected_note = self._format_candidate_snapshot(self._enrich_candidate(selected_lead))
             return (
@@ -1909,24 +2714,34 @@ class JARVIS:
         if candidate_context:
             return self._analyze_candidate_pool("which one should we invest in", candidate_context)
 
+        knowledge_response = self._knowledge_chat_response(command)
+        if knowledge_response:
+            return knowledge_response
+
         api_key = os.environ.get("OPENAI_API_KEY", "").strip()
         if api_key:
             try:
                 client = openai.OpenAI(api_key=api_key)
+                messages = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are JARVIS, an AI agency assistant. Answer briefly and directly. "
+                            "You can help with local business discovery, lead analysis, ROI planning, "
+                            "pitch scripts, contracts, board reports, and revenue plans. "
+                            "If a request is outside those capabilities, say so and suggest a nearby supported action."
+                        ),
+                    },
+                ]
+                for item in (conversation_history or [])[-8:]:
+                    role = item.get("role")
+                    content = str(item.get("content", "")).strip()
+                    if role in {"user", "assistant"} and content:
+                        messages.append({"role": role, "content": content})
+                messages.append({"role": "user", "content": command})
                 response = client.chat.completions.create(
                     model=os.environ.get("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are JARVIS, an AI agency assistant. Answer briefly and directly. "
-                                "You can help with local business discovery, lead analysis, ROI planning, "
-                                "pitch scripts, contracts, board reports, and revenue plans. "
-                                "If a request is outside those capabilities, say so and suggest a nearby supported action."
-                            ),
-                        },
-                        {"role": "user", "content": command},
-                    ],
+                    messages=messages,
                     max_tokens=220,
                 )
                 message = response.choices[0].message.content if response.choices else ""
@@ -1948,6 +2763,7 @@ class JARVIS:
         selected_lead: Optional[Dict] = None,
         candidate_context: Optional[List[Dict]] = None,
         market_code: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Structured natural-language command handling for chat and map workflows."""
         cmd = command.lower().strip()
@@ -2012,7 +2828,7 @@ class JARVIS:
             return {"response": "Calculating ROI using the current market profile.", "action": None, "leads": [], "market_profile": self.get_market_profile(resolved_market)}
 
         return {
-            "response": self._general_chat_fallback(command, selected_lead, candidate_context),
+            "response": self._general_chat_fallback(command, selected_lead, candidate_context, conversation_history),
             "action": None,
             "selected_lead": self._enrich_candidate(selected_lead, resolved_market) if selected_lead else None,
             "leads": self._rank_candidates(candidate_context, resolved_market) if candidate_context else [],

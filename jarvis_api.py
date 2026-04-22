@@ -6,7 +6,7 @@ JARVIS Operator Cockpit API
 FastAPI backend for the Australia-first global decision engine.
 """
 
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -164,6 +164,7 @@ class CommandInput(BaseModel):
     selected_lead: Optional[Dict] = Field(default=None, description="Currently selected lead from the map/chat")
     candidate_context: List[Dict] = Field(default_factory=list, description="Currently plotted candidate list")
     market_code: str = Field(default="AU", description="Presentation/commercial market context")
+    session_id: Optional[str] = Field(default=None, description="Persistent chat or voice session identifier")
 
 class CandidateCompareInput(BaseModel):
     candidates: List[Dict] = Field(default_factory=list)
@@ -198,8 +199,23 @@ class ProposalRequestInput(BaseModel):
     candidate: Dict = Field(...)
     market_code: str = Field(default="AU")
 
+class CandidateResearchInput(BaseModel):
+    candidate: Dict = Field(...)
+    market_code: str = Field(default="AU")
+
+class ConversationSessionInput(BaseModel):
+    session_id: Optional[str] = Field(default=None)
+    mode: str = Field(default="voice")
+    title: str = Field(default="JARVIS Voice Session")
+    market_code: str = Field(default="AU")
+
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text for OpenAI TTS generation")
+    voice: str = Field(default=os.environ.get("OPENAI_TTS_VOICE", "coral"))
+    model: str = Field(default=os.environ.get("OPENAI_TTS_MODEL", "gpt-4o-mini-tts"))
+    instructions: str = Field(default="Speak like a concise AI operator assistant. Calm, clear, and practical.")
+    audio_format: str = Field(default="mp3")
+    speed: float = Field(default=1.0, ge=0.25, le=4.0)
 
 
 # ============================================
@@ -218,12 +234,15 @@ async def root():
             "health": "/health",
             "leads": "/api/leads/*",
             "scan": "/api/scan",
+            "knowledge": "/api/knowledge/*",
             "roi": "/api/roi",
             "contracts": "/api/contracts",
             "revenue": "/api/revenue",
             "board": "/api/board-meeting",
             "playbooks": "/api/playbooks",
-            "command": "/api/command"
+            "command": "/api/command",
+            "conversations": "/api/conversations/*",
+            "voice": "/api/voice/*"
         }
     }
 
@@ -233,7 +252,8 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "modules": startup_result["modules"],
-        "tables": startup_result["tables_created"]
+        "tables": startup_result["tables_created"],
+        "knowledge_sources_synced": startup_result.get("knowledge_sources_synced", 0),
     }
 
 @app.get("/api/market-config", tags=["System"])
@@ -381,6 +401,28 @@ async def get_strategies(sector: str):
     return {"sector": sector, "strategies": strategies}
 
 
+# --- Knowledge Library ---
+@app.get("/api/knowledge/status", tags=["Knowledge"])
+async def knowledge_status():
+    """Knowledge library sync status."""
+    return jarvis.knowledge.get_status()
+
+@app.post("/api/knowledge/sync", tags=["Knowledge"])
+async def sync_knowledge():
+    """Sync structured playbook summaries from the playbooks directory."""
+    return jarvis.sync_knowledge_library()
+
+@app.get("/api/knowledge/sources", tags=["Knowledge"])
+async def knowledge_sources(limit: int = Query(default=50, ge=1, le=200)):
+    """List indexed knowledge sources."""
+    return {"sources": jarvis.knowledge.get_sources(limit)}
+
+@app.get("/api/knowledge/search", tags=["Knowledge"])
+async def knowledge_search(q: str = Query(..., min_length=2), limit: int = Query(default=5, ge=1, le=10)):
+    """Search the indexed knowledge library."""
+    return jarvis.search_knowledge(q, limit)
+
+
 # --- Pitch Scripts ---
 @app.post("/api/pitch", tags=["Pitch"])
 async def generate_pitch(pitch_input: PitchInput):
@@ -512,16 +554,104 @@ async def board_meeting_history(limit: int = Query(default=10)):
 
 
 # --- Natural Language Command ---
+@app.post("/api/conversations/start", tags=["JARVIS AI"])
+async def start_conversation(payload: ConversationSessionInput):
+    session = jarvis.ensure_conversation_session(
+        session_id=payload.session_id,
+        market_code=payload.market_code,
+        mode=payload.mode,
+        title=payload.title,
+        metadata={"market_code": payload.market_code, "mode": payload.mode},
+    )
+    messages = jarvis.get_conversation_messages(session["session_id"], limit=100)
+    return {"session": session, "messages": messages}
+
+@app.get("/api/conversations/{session_id}", tags=["JARVIS AI"])
+async def get_conversation(session_id: str, limit: int = Query(default=100, ge=1, le=500)):
+    session = jarvis.get_conversation_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Conversation session not found")
+    return {"session": session, "messages": jarvis.get_conversation_messages(session_id, limit)}
+
 @app.post("/api/command", tags=["JARVIS AI"])
 async def process_command(cmd: CommandInput):
     """Doğal dil komut işleme"""
+    session = None
+    history: List[Dict[str, str]] = []
+    if cmd.session_id:
+        session = jarvis.ensure_conversation_session(
+            session_id=cmd.session_id,
+            market_code=cmd.market_code,
+            mode="voice",
+            title="JARVIS Voice Session",
+            metadata={"market_code": cmd.market_code},
+        )
+        history = jarvis.get_conversation_prompt_history(session["session_id"], limit=10)
+
     result = jarvis.handle_command(
         cmd.command,
         selected_lead=cmd.selected_lead,
         candidate_context=cmd.candidate_context,
         market_code=cmd.market_code,
+        conversation_history=history,
     )
-    return {"command": cmd.command, **result}
+    if session:
+        jarvis.append_conversation_message(
+            session["session_id"],
+            "user",
+            cmd.command,
+            message_type="text",
+            metadata={
+                "selected_lead_key": cmd.selected_lead.get("lead_key") if cmd.selected_lead else None,
+                "candidate_count": len(cmd.candidate_context or []),
+            },
+        )
+        if result.get("response"):
+            jarvis.append_conversation_message(
+                session["session_id"],
+                "assistant",
+                result["response"],
+                message_type="text",
+                metadata={
+                    "action": result.get("action"),
+                    "suggested_questions": result.get("suggested_questions", []),
+                },
+            )
+    return {"command": cmd.command, "session_id": session["session_id"] if session else cmd.session_id, **result}
+
+@app.post("/api/voice/transcribe", tags=["JARVIS AI"])
+async def transcribe_voice_audio(
+    file: UploadFile = File(...),
+    language: str = Form(default="en"),
+    prompt: str = Form(default=""),
+):
+    """Transcribe browser-recorded audio with OpenAI speech-to-text."""
+    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    if not client.api_key or client.api_key == "sk-proj-placeholder":
+        raise HTTPException(status_code=400, detail="OpenAI API Key is missing or default")
+
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio upload was empty")
+
+    try:
+        response = client.audio.transcriptions.create(
+            model=os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"),
+            file=(file.filename or "voice.webm", audio_bytes, file.content_type or "audio/webm"),
+            language=language or None,
+            prompt=prompt or None,
+            response_format="text",
+        )
+        if isinstance(response, str):
+            text = response
+        else:
+            text = getattr(response, "text", "") or str(response)
+        return {
+            "text": text.strip(),
+            "model": os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/candidates/compare", tags=["Candidates"])
 async def compare_candidates(payload: CandidateCompareInput):
@@ -532,6 +662,16 @@ async def compare_candidates(payload: CandidateCompareInput):
 async def proposal_recommendation(payload: ProposalRequestInput):
     """Return a structured proposal recommendation for one candidate."""
     return jarvis.build_proposal_brief(payload.candidate, payload.market_code)
+
+@app.post("/api/candidates/research", tags=["Candidates"])
+async def candidate_deep_research(payload: CandidateResearchInput):
+    """Run deeper web research for a candidate using Serper."""
+    try:
+        return jarvis.deep_research_candidate(payload.candidate, payload.market_code)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 @app.post("/api/candidates/decision", tags=["Candidates"])
 async def save_candidate_decision(payload: CandidateDecisionInput):
@@ -580,11 +720,22 @@ async def generate_speech(tts: TTSRequest):
         
     try:
         response = client.audio.speech.create(
-            model="tts-1",
-            voice="alloy",
-            input=tts.text
+            model=tts.model,
+            voice=tts.voice,
+            input=tts.text,
+            instructions=tts.instructions,
+            response_format=tts.audio_format,
+            speed=tts.speed,
         )
-        return StreamingResponse(io.BytesIO(response.content), media_type="audio/mpeg")
+        media_type = {
+            "mp3": "audio/mpeg",
+            "wav": "audio/wav",
+            "opus": "audio/ogg",
+            "flac": "audio/flac",
+            "aac": "audio/aac",
+            "pcm": "audio/wave",
+        }.get(tts.audio_format, "audio/mpeg")
+        return StreamingResponse(io.BytesIO(response.content), media_type=media_type)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

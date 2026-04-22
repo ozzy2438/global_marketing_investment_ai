@@ -978,6 +978,38 @@
             color: var(--muted);
         }
 
+        .chat-tools {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            background: rgba(10, 24, 36, 0.82);
+        }
+
+        .chat-tools .button.recording {
+            border-color: rgba(255, 122, 122, 0.35);
+            background: rgba(255, 122, 122, 0.14);
+        }
+
+        .voice-select {
+            min-width: 124px;
+            border: 1px solid var(--line);
+            background: rgba(10, 24, 36, 0.92);
+            color: var(--text);
+            border-radius: 12px;
+            padding: 9px 12px;
+            font: inherit;
+            outline: none;
+        }
+
+        .chat-disclosure {
+            font-size: 11px;
+            color: var(--muted);
+            margin-left: auto;
+        }
+
         .chat-body {
             flex: 1;
             overflow-y: auto;
@@ -1394,6 +1426,17 @@
                     </div>
                     <div class="playbook-grid" id="playbook-grid"></div>
                 </article>
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">Knowledge Library</div>
+                            <div class="panel-subtitle">Background summaries and notes that JARVIS can retrieve during strategy, pitch, and retention conversations.</div>
+                        </div>
+                        <button class="button" onclick="syncKnowledgeLibrary()">Sync library</button>
+                    </div>
+                    <div id="knowledge-status" class="empty-state">Loading knowledge library status…</div>
+                    <div class="playbook-grid" id="knowledge-library-grid" style="margin-top:14px"></div>
+                </article>
             </div>
         </section>
 
@@ -1587,6 +1630,17 @@
             <div class="chat-context-copy" id="chat-context-copy"></div>
             <button class="button" style="padding:8px 10px" onclick="clearSelectedLead()">Clear focus</button>
         </div>
+        <div class="chat-tools">
+            <button class="button" id="voice-reply-button" onclick="toggleVoiceReplies()">Voice replies on</button>
+            <button class="button" id="voice-record-button" onclick="toggleVoiceRecording()">Start voice</button>
+            <select class="voice-select" id="voice-select" onchange="setVoicePreference(this.value)">
+                <option value="coral">Voice: Coral</option>
+                <option value="alloy">Voice: Alloy</option>
+                <option value="sage">Voice: Sage</option>
+                <option value="verse">Voice: Verse</option>
+            </select>
+            <div class="chat-disclosure">AI-generated voice replies</div>
+        </div>
         <div class="chat-body" id="chat-body">
             <div class="chat-msg jarvis">
                 <div class="chat-bubble">Ask for businesses in a suburb, compare the current candidate pool, or ask what platform and proposal makes sense for the selected lead.</div>
@@ -1622,6 +1676,17 @@
             selectedLead: null,
             mapRegistry: {},
             decisionCache: {},
+            conversationSessionId: null,
+            conversationLoaded: false,
+            voiceRepliesEnabled: true,
+            preferredVoice: 'coral',
+            mediaRecorder: null,
+            mediaStream: null,
+            isRecording: false,
+            recordingChunks: [],
+            currentAudio: null,
+            speechRecognition: null,
+            speechRecognitionActive: false,
         };
 
         async function api(endpoint, method = 'GET', body = null) {
@@ -1633,12 +1698,48 @@
 
             try {
                 const response = await fetch(`${API_BASE}${endpoint}`, options);
+                api.lastError = '';
                 if (!response.ok) {
+                    let detail = '';
+                    try {
+                        const payload = await response.json();
+                        detail = payload?.detail || payload?.message || '';
+                    } catch (error) {
+                        detail = await response.text();
+                    }
+                    api.lastError = detail || `Request failed (${response.status})`;
                     return null;
                 }
                 return await response.json();
             } catch (error) {
                 console.error('API error', error);
+                api.lastError = error.message || 'Network error';
+                return null;
+            }
+        }
+
+        async function apiForm(endpoint, formData) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                apiForm.lastError = '';
+                if (!response.ok) {
+                    let detail = '';
+                    try {
+                        const payload = await response.json();
+                        detail = payload?.detail || payload?.message || '';
+                    } catch (error) {
+                        detail = await response.text();
+                    }
+                    apiForm.lastError = detail || `Request failed (${response.status})`;
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('API form error', error);
+                apiForm.lastError = error.message || 'Network error';
                 return null;
             }
         }
@@ -1988,6 +2089,14 @@
             return result;
         }
 
+        async function loadCandidateResearch(lead) {
+            const result = await api('/api/candidates/research', 'POST', {
+                candidate: lead,
+                market_code: state.marketCode
+            });
+            return result;
+        }
+
         async function loadDecisionForLead(leadKey) {
             const result = await api(`/api/candidates/decision/${leadKey}`);
             if (result?.lead_key) {
@@ -2081,6 +2190,17 @@
                 </section>
 
                 <section class="section-stack">
+                    <h4>Web research</h4>
+                    <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+                        <button class="button" onclick="runCandidateResearch()">Run web research</button>
+                        <span style="font-size:12px;color:var(--muted)">Optional deeper public-web investigation for this lead.</span>
+                    </div>
+                    <div id="candidate-research">
+                        <div class="empty-state">No deep web research loaded yet.</div>
+                    </div>
+                </section>
+
+                <section class="section-stack">
                     <h4>Operator decision record</h4>
                     <div class="form-grid two">
                         <div class="field">
@@ -2161,6 +2281,59 @@
                     <strong>Risk summary</strong>
                     <span>${escapeHtml(proposal.risk_summary)}</span>
                 </div>
+                <div class="mini-note">
+                    <strong>Playbook guidance</strong>
+                    <span>${
+                        proposal.recommended_playbooks?.length
+                            ? proposal.recommended_playbooks.map(match => {
+                                const insight = match.matched_insights?.[0]?.content || match.summary || 'No matching insight available.';
+                                return `<strong>${escapeHtml(match.title)}</strong><br>${escapeHtml(insight)}`;
+                            }).join('<br><br>')
+                            : 'No indexed playbook guidance matched this proposal yet.'
+                    }</span>
+                </div>
+            `;
+        }
+
+        function renderCandidateResearch(research) {
+            const mount = document.getElementById('candidate-research');
+            if (!mount) return;
+            if (!research) {
+                mount.innerHTML = '<div class="empty-state">No deep web research loaded yet.</div>';
+                return;
+            }
+
+            const challenges = (research.last_year_challenges || []).length
+                ? `<ul class="detail-list">${research.last_year_challenges.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+                : '<div class="empty-state">No clear last-year challenges surfaced from the public web results.</div>';
+
+            const citations = (research.citations || []).length
+                ? `<ul class="detail-list">${research.citations.slice(0, 5).map(item => `
+                    <li>
+                        <strong>${escapeHtml(item.title || 'Untitled source')}</strong><br>
+                        ${item.link ? `<a href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.link)}</a><br>` : ''}
+                        <span>${escapeHtml(item.snippet || '')}</span>
+                    </li>
+                `).join('')}</ul>`
+                : '<div class="empty-state">No citations returned.</div>';
+
+            mount.innerHTML = `
+                <div class="mini-note">
+                    <strong>Current status</strong>
+                    <span>${escapeHtml(research.current_status_summary || 'No summary available.')}</span>
+                </div>
+                <div class="mini-note">
+                    <strong>Previous status</strong>
+                    <span>${escapeHtml(research.previous_status_summary || 'No summary available.')}</span>
+                </div>
+                <div class="mini-note">
+                    <strong>Last-year challenges</strong>
+                    <span>${challenges}</span>
+                </div>
+                <div class="mini-note">
+                    <strong>Public-web citations</strong>
+                    <span>${citations}</span>
+                </div>
             `;
         }
 
@@ -2209,6 +2382,26 @@
             await refreshStatsAndWorkflow();
             await loadDecisionWorklist();
             showToast(`Saved decision for ${state.selectedLead.name}`, 'success');
+        }
+
+        async function runCandidateResearch() {
+            if (!state.selectedLead) {
+                showToast('Select a candidate first.', 'error');
+                return;
+            }
+            const mount = document.getElementById('candidate-research');
+            if (mount) {
+                mount.innerHTML = '<div class="empty-state">Running deeper public-web research…</div>';
+            }
+            const result = await loadCandidateResearch(state.selectedLead);
+            if (!result) {
+                const message = api.lastError || 'Web research failed.';
+                renderCandidateResearch(null);
+                showToast(message.length > 110 ? 'Web research failed. Check backend logs.' : message, 'error');
+                return;
+            }
+            renderCandidateResearch(result);
+            showToast('Web research loaded', 'success');
         }
 
         function renderComparison(comparison) {
@@ -2339,29 +2532,73 @@
         }
 
         async function loadPlaybooks() {
-            const result = await api('/api/playbooks');
+            const [result, knowledgeStatus, knowledgeSources] = await Promise.all([
+                api('/api/playbooks'),
+                api('/api/knowledge/status'),
+                api('/api/knowledge/sources?limit=12')
+            ]);
             const grid = document.getElementById('playbook-grid');
+            const knowledgeGrid = document.getElementById('knowledge-library-grid');
+            const knowledgeStatusNode = document.getElementById('knowledge-status');
             if (!result?.playbooks) {
                 grid.innerHTML = '<div class="empty-state">Playbooks are unavailable right now.</div>';
+            } else {
+                const icons = {
+                    dental: '✦',
+                    law_firm: '⚖',
+                    accounting: '◫',
+                    gym: '▲',
+                    auto_gallery: '▣',
+                    construction: '▤'
+                };
+
+                grid.innerHTML = Object.entries(result.playbooks).map(([key, playbook]) => `
+                    <div class="card-tile">
+                        <div style="font-size:34px">${icons[key] || '◈'}</div>
+                        <h4>${escapeHtml(playbook.name)}</h4>
+                        <p>${playbook.strategy_count} strategies • ${playbook.duration_months} months • target ROI ${playbook.target_roi}%</p>
+                    </div>
+                `).join('');
+            }
+
+            if (knowledgeStatus) {
+                const skipped = (knowledgeStatus.skipped_files || []).map(item =>
+                    `• ${escapeHtml(item.file)} — ${escapeHtml(item.reason)}`
+                ).join('<br>');
+                knowledgeStatusNode.innerHTML = `
+                    Indexed sources: <strong>${knowledgeStatus.source_count || 0}</strong><br>
+                    Indexed insights: <strong>${knowledgeStatus.snippet_count || 0}</strong><br>
+                    Files synced this run: <strong>${(knowledgeStatus.indexed_files || []).length}</strong><br>
+                    ${skipped ? `<br><strong>Skipped binary files</strong><br>${skipped}` : 'No skipped files in the last sync.'}
+                `;
+            } else {
+                knowledgeStatusNode.textContent = 'Knowledge library status is unavailable right now.';
+            }
+
+            if (!knowledgeSources?.sources?.length) {
+                knowledgeGrid.innerHTML = '<div class="empty-state">No structured knowledge sources are indexed yet. Add JSON or `.summary.md` notes in the `playbooks/` directory and run sync.</div>';
                 return;
             }
 
-            const icons = {
-                dental: '✦',
-                law_firm: '⚖',
-                accounting: '◫',
-                gym: '▲',
-                auto_gallery: '▣',
-                construction: '▤'
-            };
-
-            grid.innerHTML = Object.entries(result.playbooks).map(([key, playbook]) => `
+            knowledgeGrid.innerHTML = knowledgeSources.sources.map(source => `
                 <div class="card-tile">
-                    <div style="font-size:34px">${icons[key] || '◈'}</div>
-                    <h4>${escapeHtml(playbook.name)}</h4>
-                    <p>${playbook.strategy_count} strategies • ${playbook.duration_months} months • target ROI ${playbook.target_roi}%</p>
+                    <div style="font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:0.14em">${escapeHtml(source.workflow_stage || 'general')}</div>
+                    <h4>${escapeHtml(source.title)}</h4>
+                    <p>${escapeHtml(source.author || 'Unknown author')}</p>
+                    <p>${escapeHtml(source.summary || 'No summary available.')}</p>
+                    <p style="font-size:12px;color:var(--muted)">${escapeHtml((source.tags || []).join(' • ') || 'No tags yet')}</p>
                 </div>
             `).join('');
+        }
+
+        async function syncKnowledgeLibrary() {
+            const result = await api('/api/knowledge/sync', 'POST', {});
+            if (!result) {
+                showToast('Knowledge sync failed.', 'error');
+                return;
+            }
+            await loadPlaybooks();
+            showToast(`Knowledge library synced: ${result.synced_sources} sources`, 'success');
         }
 
         async function calculateROI() {
@@ -2489,8 +2726,20 @@
             }, 15000);
         }
 
-        function toggleChat() {
-            document.getElementById('chat-dock').classList.toggle('open');
+        async function toggleChat() {
+            const dock = document.getElementById('chat-dock');
+            const willOpen = !dock.classList.contains('open');
+            dock.classList.toggle('open');
+            if (willOpen) {
+                await ensureConversationSession();
+            } else {
+                if (state.isRecording && state.mediaRecorder) {
+                    state.mediaRecorder.stop();
+                }
+                if (state.speechRecognitionActive && state.speechRecognition) {
+                    state.speechRecognition.stop();
+                }
+            }
         }
 
         function updateChatContext() {
@@ -2534,11 +2783,350 @@
             parent.appendChild(wrap);
         }
 
-        async function sendChat() {
+        function renderDefaultChatGreeting() {
+            const body = document.getElementById('chat-body');
+            body.innerHTML = `
+                <div class="chat-msg jarvis">
+                    <div class="chat-bubble">Ask for businesses in a suburb, compare the current candidate pool, or ask what platform and proposal makes sense for the selected lead.</div>
+                </div>
+            `;
+        }
+
+        function renderConversationHistory(messages) {
+            const body = document.getElementById('chat-body');
+            body.innerHTML = '';
+            if (!messages?.length) {
+                renderDefaultChatGreeting();
+                return;
+            }
+            messages.forEach(message => {
+                addChatMessage(
+                    message.content,
+                    message.role === 'assistant' ? 'jarvis' : 'user'
+                );
+            });
+        }
+
+        function stopCurrentAudio() {
+            if (state.currentAudio) {
+                state.currentAudio.pause();
+                if (state.currentAudio.dataset?.objectUrl) {
+                    URL.revokeObjectURL(state.currentAudio.dataset.objectUrl);
+                }
+                state.currentAudio = null;
+            }
+        }
+
+        async function ensureConversationSession() {
+            if (state.conversationSessionId && state.conversationLoaded) {
+                return state.conversationSessionId;
+            }
+
+            const savedId = window.localStorage.getItem('jarvisConversationSessionId');
+            if (savedId && !state.conversationLoaded) {
+                const existing = await api(`/api/conversations/${savedId}`);
+                if (existing?.session?.session_id) {
+                    state.conversationSessionId = existing.session.session_id;
+                    state.conversationLoaded = true;
+                    renderConversationHistory(existing.messages || []);
+                    return state.conversationSessionId;
+                }
+            }
+
+            const created = await api('/api/conversations/start', 'POST', {
+                session_id: savedId,
+                mode: 'voice',
+                title: 'JARVIS Voice Session',
+                market_code: state.marketCode
+            });
+
+            if (created?.session?.session_id) {
+                state.conversationSessionId = created.session.session_id;
+                state.conversationLoaded = true;
+                window.localStorage.setItem('jarvisConversationSessionId', state.conversationSessionId);
+                renderConversationHistory(created.messages || []);
+                return state.conversationSessionId;
+            }
+
+            return null;
+        }
+
+        async function speakResponse(text) {
+            if (!state.voiceRepliesEnabled || !text?.trim()) return;
+            stopCurrentAudio();
+
+            try {
+                const response = await fetch(`${API_BASE}/api/tts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text,
+                        voice: state.preferredVoice,
+                        model: 'gpt-4o-mini-tts',
+                        instructions: 'Speak like a concise AI operator assistant. Calm, clear, practical, and slightly futuristic.'
+                    })
+                });
+
+                if (!response.ok) {
+                    showToast('Voice reply failed.', 'error');
+                    return;
+                }
+
+                const blob = await response.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                const audio = new Audio(objectUrl);
+                audio.dataset.objectUrl = objectUrl;
+                state.currentAudio = audio;
+                audio.onended = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    if (state.currentAudio === audio) state.currentAudio = null;
+                };
+                audio.onerror = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    if (state.currentAudio === audio) state.currentAudio = null;
+                };
+                await audio.play();
+            } catch (error) {
+                console.error('TTS playback error', error);
+                showToast('Voice reply failed.', 'error');
+            }
+        }
+
+        function updateVoiceControls() {
+            const replyButton = document.getElementById('voice-reply-button');
+            const recordButton = document.getElementById('voice-record-button');
+            const voiceSelect = document.getElementById('voice-select');
+            const active = state.isRecording || state.speechRecognitionActive;
+
+            if (replyButton) {
+                replyButton.textContent = state.voiceRepliesEnabled ? 'Voice replies on' : 'Voice replies off';
+            }
+            if (recordButton) {
+                recordButton.textContent = active ? 'Stop recording' : 'Start voice';
+                recordButton.classList.toggle('recording', active);
+            }
+            if (voiceSelect) {
+                voiceSelect.value = state.preferredVoice;
+            }
+        }
+
+        function speechRecognitionLanguage() {
+            return {
+                AU: 'en-AU',
+                US: 'en-US',
+                GB: 'en-GB',
+                NZ: 'en-NZ',
+                TR: 'tr-TR'
+            }[state.marketCode] || 'en-US';
+        }
+
+        function setVoicePreference(value) {
+            state.preferredVoice = value || 'coral';
+            window.localStorage.setItem('jarvisPreferredVoice', state.preferredVoice);
+            updateVoiceControls();
+        }
+
+        function toggleVoiceReplies() {
+            state.voiceRepliesEnabled = !state.voiceRepliesEnabled;
+            window.localStorage.setItem('jarvisVoiceRepliesEnabled', state.voiceRepliesEnabled ? '1' : '0');
+            if (!state.voiceRepliesEnabled) {
+                stopCurrentAudio();
+            }
+            updateVoiceControls();
+        }
+
+        async function transcribeVoiceBlob(blob, mimeType) {
+            const sessionId = await ensureConversationSession();
+            if (!sessionId) {
+                showToast('Could not start a conversation session.', 'error');
+                return;
+            }
+
+            const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm';
+            const formData = new FormData();
+            formData.append('file', blob, `jarvis-voice.${extension}`);
+            formData.append('language', 'en');
+            formData.append(
+                'prompt',
+                'This is an agency operator conversation about JARVIS, playbooks, CRM, customer platforms, proposals, StoryBrand, Challenger Sale, Hormozi, churn, retention, Craigieburn, Melbourne, and Australian businesses.'
+            );
+
+            const result = await apiForm('/api/voice/transcribe', formData);
+            if (!result?.text) {
+                const detail = apiForm.lastError || 'Speech recognition failed.';
+                if (detail.toLowerCase().includes('api key')) {
+                    showToast('Speech transcription failed because the backend OpenAI API key is invalid.', 'error');
+                } else {
+                    showToast(detail.length > 110 ? 'Speech recognition failed. Check backend logs.' : detail, 'error');
+                }
+                return;
+            }
+
+            await sendChat(result.text);
+        }
+
+        async function startBrowserSpeechRecognition() {
+            const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!Recognition) {
+                return false;
+            }
+
+            try {
+                stopCurrentAudio();
+                const recognition = new Recognition();
+                let finalTranscript = '';
+                recognition.lang = speechRecognitionLanguage();
+                recognition.interimResults = true;
+                recognition.maxAlternatives = 1;
+                recognition.continuous = false;
+
+                state.speechRecognition = recognition;
+                state.speechRecognitionActive = true;
+                updateVoiceControls();
+
+                recognition.onresult = event => {
+                    let interimTranscript = '';
+                    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+                        const transcript = event.results[i][0]?.transcript || '';
+                        if (event.results[i].isFinal) {
+                            finalTranscript += `${transcript} `;
+                        } else {
+                            interimTranscript += transcript;
+                        }
+                    }
+                    const input = document.getElementById('chat-input');
+                    if (input) {
+                        input.value = `${finalTranscript}${interimTranscript}`.trim();
+                    }
+                };
+
+                recognition.onerror = event => {
+                    console.error('SpeechRecognition error', event);
+                    state.speechRecognitionActive = false;
+                    state.speechRecognition = null;
+                    updateVoiceControls();
+                    if (event.error !== 'aborted') {
+                        showToast(`Browser speech recognition failed: ${event.error}`, 'error');
+                    }
+                };
+
+                recognition.onend = async () => {
+                    const transcript = finalTranscript.trim();
+                    state.speechRecognitionActive = false;
+                    state.speechRecognition = null;
+                    updateVoiceControls();
+                    if (transcript) {
+                        await sendChat(transcript);
+                    } else {
+                        const input = document.getElementById('chat-input');
+                        if (input && !input.value.trim()) {
+                            showToast('No speech was detected.', 'error');
+                        }
+                    }
+                };
+
+                recognition.start();
+                showToast('Listening with browser speech recognition…', 'success');
+                return true;
+            } catch (error) {
+                console.error('Browser speech recognition setup failed', error);
+                state.speechRecognitionActive = false;
+                state.speechRecognition = null;
+                updateVoiceControls();
+                return false;
+            }
+        }
+
+        async function toggleVoiceRecording() {
+            if (state.speechRecognitionActive && state.speechRecognition) {
+                state.speechRecognition.stop();
+                return;
+            }
+
+            if (state.isRecording && state.mediaRecorder) {
+                state.mediaRecorder.stop();
+                return;
+            }
+
+            if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+                const browserRecognitionStarted = await startBrowserSpeechRecognition();
+                if (browserRecognitionStarted) {
+                    return;
+                }
+                showToast('Voice capture is not supported in this browser.', 'error');
+                return;
+            }
+
+            try {
+                stopCurrentAudio();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const mimeCandidates = [
+                    'audio/webm;codecs=opus',
+                    'audio/webm',
+                    'audio/ogg;codecs=opus',
+                    'audio/mp4'
+                ];
+                const mimeType = mimeCandidates.find(type => window.MediaRecorder.isTypeSupported?.(type)) || '';
+                const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+                state.mediaStream = stream;
+                state.mediaRecorder = recorder;
+                state.recordingChunks = [];
+                state.isRecording = true;
+                updateVoiceControls();
+
+                recorder.ondataavailable = event => {
+                    if (event.data && event.data.size > 0) {
+                        state.recordingChunks.push(event.data);
+                    }
+                };
+
+                recorder.onstop = async () => {
+                    const chunks = state.recordingChunks.slice();
+                    const finalMimeType = recorder.mimeType || mimeType || 'audio/webm';
+                    state.isRecording = false;
+                    state.mediaRecorder = null;
+                    state.recordingChunks = [];
+                    if (state.mediaStream) {
+                        state.mediaStream.getTracks().forEach(track => track.stop());
+                        state.mediaStream = null;
+                    }
+                    updateVoiceControls();
+
+                    if (!chunks.length) {
+                        const browserRecognitionStarted = await startBrowserSpeechRecognition();
+                        if (!browserRecognitionStarted) {
+                            showToast('No audio was captured from the microphone.', 'error');
+                        }
+                        return;
+                    }
+                    const blob = new Blob(chunks, { type: finalMimeType });
+                    await transcribeVoiceBlob(blob, finalMimeType);
+                };
+
+                recorder.start();
+                showToast('Recording from the microphone… click again to stop.', 'success');
+            } catch (error) {
+                console.error('Voice recording error', error);
+                state.isRecording = false;
+                if (state.mediaStream) {
+                    state.mediaStream.getTracks().forEach(track => track.stop());
+                    state.mediaStream = null;
+                }
+                updateVoiceControls();
+                const browserRecognitionStarted = await startBrowserSpeechRecognition();
+                if (!browserRecognitionStarted) {
+                    showToast('Could not access the microphone.', 'error');
+                }
+            }
+        }
+
+        async function sendChat(forcedMessage = null) {
             const input = document.getElementById('chat-input');
-            const message = input.value.trim();
+            const message = String(forcedMessage ?? input.value).trim();
             if (!message) return;
 
+            await ensureConversationSession();
             addChatMessage(message, 'user');
             input.value = '';
 
@@ -2546,12 +3134,19 @@
                 command: message,
                 selected_lead: state.selectedLead,
                 candidate_context: state.currentPool,
-                market_code: state.marketCode
+                market_code: state.marketCode,
+                session_id: state.conversationSessionId
             });
 
             if (!result?.response) {
                 addChatMessage('The backend did not return a response. Check whether the API is running.', 'jarvis');
                 return;
+            }
+
+            if (result.session_id) {
+                state.conversationSessionId = result.session_id;
+                state.conversationLoaded = true;
+                window.localStorage.setItem('jarvisConversationSessionId', state.conversationSessionId);
             }
 
             const jarvisMessage = addChatMessage(result.response, 'jarvis');
@@ -2581,19 +3176,21 @@
             if (result.action === 'open_scan_modal') {
                 openScanModal();
             }
+
+            await speakResponse(result.response);
         }
 
         function runQuickPrompt(prompt) {
-            document.getElementById('chat-input').value = prompt;
             toggleChatIfClosed();
-            sendChat();
+            sendChat(prompt);
         }
 
-        function toggleChatIfClosed() {
+        async function toggleChatIfClosed() {
             const dock = document.getElementById('chat-dock');
             if (!dock.classList.contains('open')) {
                 dock.classList.add('open');
             }
+            await ensureConversationSession();
         }
 
         async function refreshCockpit() {
@@ -2610,13 +3207,17 @@
         function bindTopActions() {
             document.getElementById('refresh-button').addEventListener('click', refreshCockpit);
             document.getElementById('scan-button').addEventListener('click', openScanModal);
-            document.getElementById('chat-button').addEventListener('click', () => {
-                toggleChatIfClosed();
+            document.getElementById('chat-button').addEventListener('click', async () => {
+                await toggleChatIfClosed();
                 document.getElementById('chat-input').focus();
             });
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
+            state.preferredVoice = window.localStorage.getItem('jarvisPreferredVoice') || 'coral';
+            state.voiceRepliesEnabled = window.localStorage.getItem('jarvisVoiceRepliesEnabled') !== '0';
+            renderDefaultChatGreeting();
+            updateVoiceControls();
             bindNavigation();
             bindTopActions();
             populateMarketSelect('roi-market');
@@ -2628,6 +3229,7 @@
             await refreshCockpit();
             await loadDecisionWorklist();
             await loadPlaybooks();
+            await ensureConversationSession();
         });
     </script>
 </body>

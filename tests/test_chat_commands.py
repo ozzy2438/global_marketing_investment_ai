@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import sys
 
@@ -8,6 +9,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import jarvis_core
+from jarvis_serper_research import SerperWebResearch
 
 
 class DummySerpApi:
@@ -59,6 +61,131 @@ def jarvis(monkeypatch):
     monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
     monkeypatch.setattr(jarvis_core, "SerpApiGlobalIntegration", DummySerpApi)
     return jarvis_core.JARVIS()
+
+
+def test_knowledge_library_sync_indexes_structured_sources_and_skips_binaries(tmp_path):
+    nested = tmp_path / "sales"
+    nested.mkdir()
+    (nested / "offers.summary.md").write_text(
+        "# Offer Notes\n"
+        "Author: Internal Team\n"
+        "Workflow: offer_design\n"
+        "Tags: offers, pricing\n\n"
+        "Use value-based pricing for high-impact proposals.\n"
+        "- Package outcomes instead of deliverables.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "raw-book.pdf").write_bytes(b"%PDF-1.4")
+
+    library = jarvis_core.KnowledgeLibrary(db=None, library_dir=str(tmp_path))
+    report = library.sync_directory(persist=False)
+
+    assert report["synced_sources"] == 1
+    assert report["synced_snippets"] >= 1
+    assert "sales/offers.summary.md" in report["indexed_files"]
+    assert any(item["file"] == "raw-book.pdf" for item in report["skipped_files"])
+
+
+def test_knowledge_library_search_matches_offer_design(tmp_path):
+    payload = {
+        "sources": [
+            {
+                "source_key": "100m-offers",
+                "title": "$100M Offers",
+                "author": "Alex Hormozi",
+                "workflow_stage": "offer_design",
+                "summary": "Package technical work as commercial outcomes.",
+                "tags": ["offers", "pricing"],
+                "insights": [
+                    {
+                        "content": "Price around impact and risk reduction rather than effort.",
+                        "workflow_stage": "offer_design",
+                        "tags": ["pricing", "roi"],
+                        "importance": 92,
+                    }
+                ],
+            },
+            {
+                "source_key": "hooked",
+                "title": "Hooked",
+                "author": "Nir Eyal",
+                "workflow_stage": "habit_design",
+                "summary": "Use triggers and rewards for re-engagement.",
+                "tags": ["retention", "engagement"],
+                "insights": [
+                    {
+                        "content": "Design retention loops around triggers and repeat behaviour.",
+                        "workflow_stage": "habit_design",
+                        "tags": ["retention"],
+                        "importance": 80,
+                    }
+                ],
+            },
+        ]
+    }
+    (tmp_path / "book_playbooks.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    library = jarvis_core.KnowledgeLibrary(db=None, library_dir=str(tmp_path))
+    library.sync_directory(persist=False)
+    result = library.search("How should we package the offer and price the proposal?", limit=2)
+
+    assert result["matches"]
+    assert result["matches"][0]["source_key"] == "100m-offers"
+
+
+def test_serper_research_builds_structured_business_summary(monkeypatch):
+    researcher = SerperWebResearch(api_key="test-key")
+
+    def fake_search(query, market_code="AU", num=5, autocorrect=True):
+        if "complaints reviews issues" in query:
+            return {
+                "organic": [
+                    {
+                        "title": "Patient review summary",
+                        "link": "https://example.com/reviews",
+                        "snippet": "Patients mentioned waiting times and inconsistent follow-up after treatment.",
+                    }
+                ]
+            }
+        if "last year changes issues" in query:
+            return {
+                "organic": [
+                    {
+                        "title": "2025 update",
+                        "link": "https://example.com/2025-update",
+                        "snippet": "Last year the clinic expanded services and adjusted staffing after a busy growth period.",
+                    }
+                ]
+            }
+        return {
+            "knowledgeGraph": {
+                "title": "Dental Advance",
+                "description": "Dental clinic in Melbourne CBD",
+                "website": "https://dentaladvance.example",
+            },
+            "organic": [
+                {
+                    "title": "Official site",
+                    "link": "https://dentaladvance.example",
+                    "snippet": "Provides general dentistry, cosmetic treatments, and consultations in Melbourne CBD.",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(researcher, "search", fake_search)
+    result = researcher.research_business(
+        business_name="Dental Advance",
+        location="Melbourne CBD",
+        website="https://dentaladvance.example",
+        sector="dental",
+        market_code="AU",
+    )
+
+    assert result["current_status_summary"]
+    assert result["previous_status_summary"]
+    assert result["last_year_challenges"]
+    assert result["citations"]
+    assert any(item["label"] == "reputation_issues" for item in result["search_runs"])
 
 
 def test_extract_business_search_request(jarvis):
@@ -153,6 +280,8 @@ def test_build_proposal_brief_returns_structured_fields(jarvis):
     assert brief["recommended_service_type"]
     assert brief["proposal_readiness"] in {"Ready now", "Needs qualification", "Monitor"}
     assert brief["decision_trace"]
+    assert brief["recommended_playbooks"]
+    assert "Recommended playbooks" in brief["playbook_guidance"]
 
 
 def test_general_fallback_is_not_static_canned_text(jarvis, monkeypatch):
@@ -162,3 +291,12 @@ def test_general_fallback_is_not_static_canned_text(jarvis, monkeypatch):
 
     assert "What can you help me with today?" in response
     assert "JARVIS hazır. Ne yapmamı istersin?" not in response
+
+
+def test_general_fallback_can_use_knowledge_library(jarvis, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    response = jarvis.process_command("Which playbook should we use for pricing and proposal offers?")
+
+    assert "Relevant playbooks from the knowledge library" in response
+    assert "$100M Offers" in response
